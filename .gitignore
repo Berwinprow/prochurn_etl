@@ -1,17 +1,23 @@
 # Ignore everything
 *
 
-# Allow only specific folders and files
+# Allow specific folders and files
 !automation/
+!automation/**
 !Automation/
+!Automation/**
+
 !Dags/
+!Dags/**
 !dags/
+!dags/**
+
 !docker-compose*
 !dockerfile
 !requirements*
 !.gitignore
 
-# Ignore temp and system files
+# Ignore unwanted system & temp files
 __pycache__/
 *.log
 *.zip
