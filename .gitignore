@@ -1,0 +1,21 @@
+# Ignore everything by default
+*
+
+# But keep only these folders and files
+!automation/
+!Dags/
+!docker-compose*
+!dockerfile
+!requirements*
+
+# Keep the .gitignore file itself
+!.gitignore
+
+# Optional: ignore temp files
+__pycache__/
+*.log
+*.zip
+.env
+logs/
+config/
+plugins/
