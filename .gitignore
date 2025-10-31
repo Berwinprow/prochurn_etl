@@ -1,0 +1,26 @@
+# Ignore Airflow logs and metadata
+logs/
+airflow.db
+airflow.cfg
+unittest.cfg
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual envs
+.env
+.venv
+
+# IDE files
+.vscode/
+.idea/
+
+# Ignore data files
+plugins/
+automation/
+backup/
+config/
+
+docker-compose.yaml
+dockerfile
