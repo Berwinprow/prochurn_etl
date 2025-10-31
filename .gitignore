@@ -22,5 +22,5 @@ automation/
 backup/
 config/
 
-docker-compose.yaml
+
 dockerfile
