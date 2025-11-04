@@ -20,7 +20,7 @@ from sqlalchemy.exc import SQLAlchemyError
 # ✅ Define Source & Target Tables
 SOURCE_SCHEMA = "pip_aggregation" # both source and target has same schema name
 BASE_TABLE = "base_2022"
-PR_TABLE = '"pr_2022"'
+PR_TABLE = "pr_2022"
 TARGET_SCHEMA = "pip_aggregation"
 TARGET_TABLE = "finalwith_2022_pr"
 LOG_TABLE = "removed_duplicate_policies"
@@ -151,8 +151,8 @@ def append_base_pr_initial():
         conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {TARGET_SCHEMA};"))
 
     # ✅ Extract Data from `base` and `pr`
-    query_base = f"SELECT * FROM {SOURCE_SCHEMA}.{BASE_TABLE} "
-    query_pr = f"SELECT * FROM {SOURCE_SCHEMA}.{PR_TABLE} "
+    query_base = f"SELECT * FROM {SOURCE_SCHEMA}.{BASE_TABLE} limit 1000"
+    query_pr = f"SELECT * FROM {SOURCE_SCHEMA}.{PR_TABLE} limit 1000"
     
     df_base = pd.read_sql(query_base, engine)
     df_pr = pd.read_sql(query_pr, engine)

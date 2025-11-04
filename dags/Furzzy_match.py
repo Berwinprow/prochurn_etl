@@ -24,7 +24,7 @@ import time
 # ✅ Define Source & Target Tables
 SOURCE_SCHEMA = "pip_aggregation" # both source and target has same schema name
 TARGET_SCHEMA = "pip_aggregation" # both source and target has same schema name
-TARGET_TABLE = "final_renewed_policies_22_pr"
+#TARGET_TABLE = "final_renewed_policies_22_pr"
 LOG_TABLE = "removed_duplicate_policies"
 log_schema= "pip_log"
 META_TABLE = "etl_metadata_logs"
@@ -114,8 +114,10 @@ def fuzzy_matching():
  
     postgres_hook = PostgresHook(postgres_conn_id="postgres_cloud_prochurn")
     engine = postgres_hook.get_sqlalchemy_engine()
-    SOURCE_TABLE = "finalwith_2022_pr"
-    # SOURCE_TABLE = get_latest_source_table(engine)
+    #SOURCE_TABLE = "finalwith_2022_pr"
+    SOURCE_TABLE = get_latest_source_table(engine)
+    value_after_underscore = SOURCE_TABLE.split("_", 1)[1]
+    TARGET_TABLE = "final_renewed_policies_" + value_after_underscore
     if not SOURCE_TABLE:
         print("no source table found")
         return
