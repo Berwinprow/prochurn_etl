@@ -18,10 +18,10 @@ from sqlalchemy.exc import SQLAlchemyError
 
 
 # ✅ Define Source & Target Tables
-SOURCE_SCHEMA = "pip_bi_dwh" # both source and target has same schema name
+SOURCE_SCHEMA = "pip_aggregation" # both source and target has same schema name
 # BASE_TABLE = "base_2022"
 # PR_TABLE = '"pr_2022"'
-TARGET_SCHEMA = "pip_bi_dwh" # both source and target has same schema name
+TARGET_SCHEMA = "pip_aggregation" # both source and target has same schema name
 # TARGET_TABLE = "finalwith_2022_pr"
 LOG_TABLE = "removed_duplicate_policies"
 log_schema= "pip_log"

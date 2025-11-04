@@ -16,6 +16,7 @@ from claim_load_append_merge import append_claim_table , merge_claim_table , mer
 from addons import addon_column
 from new_column_features import build_policy_features
 from baseprappend_inital import append_base_pr_initial
+from base_pr_append import run_all_iterations
 
 # ---------------------------------------------------------------------
 # ✅ Custom Failure Email Callback (Gmail-based)
@@ -106,31 +107,31 @@ with DAG(
 
     start = DummyOperator(task_id="start_pipeline")
 
-    # ---------------- Stage 1 ----------------
-    load_initial_data = PythonOperator(
-        task_id='initial_data_load',
-        python_callable=load_data_to_postgres_stage,
-        provide_context=True,
-    )
+    # # ---------------- Stage 1 ----------------
+    # load_initial_data = PythonOperator(
+    #     task_id='initial_data_load',
+    #     python_callable=load_data_to_postgres_stage,
+    #     provide_context=True,
+    # )
 
-    # ---------------- Stage 2 ----------------
-    clean_base_data = PythonOperator(
-        task_id="clean_and_load_base_data",
-        python_callable=cleanse_and_load_base_tables,
-        provide_context=True,
-    )
+    # # ---------------- Stage 2 ----------------
+    # clean_base_data = PythonOperator(
+    #     task_id="clean_and_load_base_data",
+    #     python_callable=cleanse_and_load_base_tables,
+    #     provide_context=True,
+    # )
 
-    # ---------------- Stage 3 ----------------
-    clean_pr_data = PythonOperator(
-        task_id="clean_pr_file_data",
-        python_callable=clean_and_load_pr_data,
-        provide_context=True,
-    )
+    # # ---------------- Stage 3 ----------------
+    # clean_pr_data = PythonOperator(
+    #     task_id="clean_pr_file_data",
+    #     python_callable=clean_and_load_pr_data,
+    #     provide_context=True,
+    # )
 
     # ---------------- Stage 4 ----------------
     append_basepr = PythonOperator(
         task_id="base_pr_data_appending",
-        python_callable=append_base_pr_initial,
+        python_callable=run_all_iterations,
         provide_context=True,
     )
 
@@ -202,7 +203,12 @@ with DAG(
     # new_column_features >> [send_failure_email, end]
     # send_failure_email >> end
 
-    start >> load_initial_data >>[clean_base_data, clean_pr_data, append_claim >> merge_claim ] >> append_basepr >> fuzzy_match >> merge_baseprclaim >> add_on >> new_column_features
-    new_column_features >> [send_failure_email] >> end
-    [send_failure_email] >> end 
+    # start >> load_initial_data >> append_claim >> [clean_base_data, clean_pr_data, merge_claim ] >> append_basepr >> fuzzy_match >> merge_baseprclaim >> add_on >> new_column_features
+    # new_column_features >> [send_failure_email] >> end
+    # [send_failure_email] >> end 
+
+    start >> append_claim >> merge_claim >>append_basepr >>  fuzzy_match >> merge_baseprclaim >> add_on >> new_column_features 
+    new_column_features >> [send_failure_email >> end]
+    send_failure_email >> end
+
 
