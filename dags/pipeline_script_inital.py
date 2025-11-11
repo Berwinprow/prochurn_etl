@@ -21,32 +21,32 @@ from base_pr_append import run_all_iterations
 # ---------------------------------------------------------------------
 # ✅ Custom Failure Email Callback (Gmail-based)
 # ---------------------------------------------------------------------
-def send_failure_email(context):
-    dag_id = context.get('dag').dag_id
-    task_id = context.get('task_instance').task_id
-    exception = context.get('exception')
-    execution_date = context.get('execution_date')
-    log_url = context.get('task_instance').log_url
+# def send_failure_email(context):
+#     dag_id = context.get('dag').dag_id
+#     task_id = context.get('task_instance').task_id
+#     exception = context.get('exception')
+#     execution_date = context.get('execution_date')
+#     log_url = context.get('task_instance').log_url
 
-    subject = f"🚨 Airflow Task Failed: {dag_id}.{task_id}"
+#     subject = f"🚨 Airflow Task Failed: {dag_id}.{task_id}"
 
-    html_content = f"""
-    <h3>🔴 Airflow Task Failure Alert</h3>
-    <p><b>DAG:</b> {dag_id}</p>
-    <p><b>Task:</b> {task_id}</p>
-    <p><b>Execution Date:</b> {execution_date}</p>
-    <p><b>Error:</b> {exception}</p>
-    <p><a href="{log_url}">🔗 View Logs</a></p>
-    """
+#     html_content = f"""
+#     <h3>🔴 Airflow Task Failure Alert</h3>
+#     <p><b>DAG:</b> {dag_id}</p>
+#     <p><b>Task:</b> {task_id}</p>
+#     <p><b>Execution Date:</b> {execution_date}</p>
+#     <p><b>Error:</b> {exception}</p>
+#     <p><a href="{log_url}">🔗 View Logs</a></p>
+#     """
 
-    # ✅ Send via Gmail SMTP connection
-    send_email(
-        to=["berwin.rayen@prowesstics.com"],
-        subject=subject,
-        html_content=html_content,
-        conn_id="smtp_default"  # Use your working Gmail connection
-    )
-    logging.info(f"[send_failure_email] Alert sent for task: {task_id}")
+#     # ✅ Send via Gmail SMTP connection
+#     send_email(
+#         to=["berwin.rayen@prowesstics.com"],
+#         subject=subject,
+#         html_content=html_content,
+#         conn_id="smtp_default"  # Use your working Gmail connection
+#     )
+#     logging.info(f"[send_failure_email] Alert sent for task: {task_id}")
 
 # ---------------------------------------------------------------------
 # ✅ Optional Fallback Task (triggered when any task fails)
@@ -91,7 +91,7 @@ default_args = {
     'retry_delay': timedelta(minutes=5),
     'email_on_failure': False,
     'email_on_retry': False,
-    'on_failure_callback': send_failure_email,
+    # 'on_failure_callback': send_failure_email,
 }
 
 # ---------------------------------------------------------------------
@@ -107,26 +107,26 @@ with DAG(
 
     start = DummyOperator(task_id="start_pipeline")
 
-    # # ---------------- Stage 1 ----------------
-    # load_initial_data = PythonOperator(
-    #     task_id='initial_data_load',
-    #     python_callable=load_data_to_postgres_stage,
-    #     provide_context=True,
-    # )
+    # ---------------- Stage 1 ----------------
+    load_initial_data = PythonOperator(
+        task_id='initial_data_load',
+        python_callable=load_data_to_postgres_stage,
+        provide_context=True,
+    )
 
-    # # ---------------- Stage 2 ----------------
-    # clean_base_data = PythonOperator(
-    #     task_id="clean_and_load_base_data",
-    #     python_callable=cleanse_and_load_base_tables,
-    #     provide_context=True,
-    # )
+    # ---------------- Stage 2 ----------------
+    clean_base_data = PythonOperator(
+        task_id="clean_and_load_base_data",
+        python_callable=cleanse_and_load_base_tables,
+        provide_context=True,
+    )
 
-    # # ---------------- Stage 3 ----------------
-    # clean_pr_data = PythonOperator(
-    #     task_id="clean_pr_file_data",
-    #     python_callable=clean_and_load_pr_data,
-    #     provide_context=True,
-    # )
+    # ---------------- Stage 3 ----------------
+    clean_pr_data = PythonOperator(
+        task_id="clean_pr_file_data",
+        python_callable=clean_and_load_pr_data,
+        provide_context=True,
+    )
 
     # ---------------- Stage 4 ----------------
     append_basepr = PythonOperator(
@@ -169,19 +169,19 @@ with DAG(
     )
 
       # ---------------- EMAIL ALERT ON FAILURE ----------------
-    send_failure_email = EmailOperator(
-        task_id='notify_failure_email',
-        to=["berwin.rayen@prowesstics.com"],
-        subject='🚨 Airflow Alert: {{ dag.dag_id }} Task Failure',
-        html_content="""
-        <h3>🔴 Airflow Task Failed</h3>
-        <p><b>DAG:</b> {{ dag.dag_id }}</p>
-        <p><b>Task:</b> {{ task_instance.task_id }}</p>
-        <p><b>Execution Date:</b> {{ ts }}</p>
-        <p><a href="{{ task_instance.log_url }}">🔗 View Logs</a></p>
-        """,
-        trigger_rule=TriggerRule.ONE_FAILED,  # ✅ triggers if *any* upstream task fails
-    )
+    # send_failure_email = EmailOperator(
+    #     task_id='notify_failure_email',
+    #     to=["berwin.rayen@prowesstics.com"],
+    #     subject='🚨 Airflow Alert: {{ dag.dag_id }} Task Failure',
+    #     html_content="""
+    #     <h3>🔴 Airflow Task Failed</h3>
+    #     <p><b>DAG:</b> {{ dag.dag_id }}</p>
+    #     <p><b>Task:</b> {{ task_instance.task_id }}</p>
+    #     <p><b>Execution Date:</b> {{ ts }}</p>
+    #     <p><a href="{{ task_instance.log_url }}">🔗 View Logs</a></p>
+    #     """,
+    #     trigger_rule=TriggerRule.ONE_FAILED,  # ✅ triggers if *any* upstream task fails
+    # )
 
     # # ---------------- FALLBACK RECOVERY ----------------
     # fallback_task = PythonOperator(
@@ -203,12 +203,12 @@ with DAG(
     # new_column_features >> [send_failure_email, end]
     # send_failure_email >> end
 
-    # start >> load_initial_data >> append_claim >> [clean_base_data, clean_pr_data, merge_claim ] >> append_basepr >> fuzzy_match >> merge_baseprclaim >> add_on >> new_column_features
+    start >> load_initial_data >> append_claim >> [clean_base_data, clean_pr_data, merge_claim ] >> append_basepr >> fuzzy_match >> merge_baseprclaim >> add_on >> new_column_features >> end
     # new_column_features >> [send_failure_email] >> end
     # [send_failure_email] >> end 
 
-    start >> append_claim >> merge_claim >>append_basepr >>  fuzzy_match >> merge_baseprclaim >> add_on >> new_column_features 
-    new_column_features >> [send_failure_email >> end]
-    send_failure_email >> end
+    # start >> append_claim >> merge_claim >>append_basepr >>  fuzzy_match >> merge_baseprclaim >> add_on >> new_column_features 
+    # new_column_features >> [send_failure_email >> end]
+    # send_failure_email >> end
 
 

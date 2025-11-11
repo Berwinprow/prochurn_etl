@@ -18,6 +18,8 @@ from azure.storage.blob import BlobServiceClient
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from datetime import timedelta
+from pathlib import Path
+from schema_table_config import get_schema, get_log_tables
 
 
 
@@ -26,9 +28,11 @@ from datetime import timedelta
 # ---------------------------------------------------------------------
 POSTGRES_CONN_ID = "postgres_cloud_prochurn"
 AZURE_BLOB_CONN_ID = "azure_blob"
-SCHEMA_NAME_VAR = "pip_stage"
+DAGS_DIR = Path(__file__).resolve().parent
+JSON_PATH = str(DAGS_DIR/"config"/"schema_metadata_config.json")
+SCHEMA_NAME_VAR = get_schema("stage",JSON_PATH)
 BATCH_SIZE = 1000
-LOG_SCHEMA = "pip_log"
+LOG_SCHEMA = get_schema("log",JSON_PATH)
 
 
 # ---------------------------------------------------------------------
@@ -56,62 +60,6 @@ def clean_column_names(df):
         new_columns.append(new_col)
     df.columns = new_columns
     return df
-
-
-# ---------------------------------------------------------------------
-# 🧱 Ensure claim_logs table exists
-# ---------------------------------------------------------------------
-def ensure_claim_log_table(engine):
-    """Ensure claim_logs table exists."""
-    query = f"""
-        CREATE SCHEMA IF NOT EXISTS {LOG_SCHEMA};
-        CREATE TABLE IF NOT EXISTS {LOG_SCHEMA}.claim_logs (
-            table_name TEXT PRIMARY KEY,
-            table_rnk INTEGER,
-            year INTEGER,
-            stage_loaded TEXT DEFAULT 'NO',
-            stage_count BIGINT DEFAULT 0,
-            is_appended TEXT DEFAULT 'NO',
-            appended_count INTEGER,
-            is_merged TEXT DEFAULT 'NO',
-            merged_count INTEGER,
-            is_basepr_claim_merged TEXT DEFAULT 'NO',
-            cnt INTEGER,
-            last_updated_ts TIMESTAMP DEFAULT NOW()
-        );
-    """
-    with engine.begin() as conn:
-        conn.execute(text(query))
-
-
-# ---------------------------------------------------------------------
-# 🧱 Ensure etl_metadata_logs table exists
-# ---------------------------------------------------------------------
-def ensure_meta_log_table(engine):
-    """Ensure etl_metadata_logs table exists."""
-    query = f"""
-        CREATE SCHEMA IF NOT EXISTS {LOG_SCHEMA};
-        CREATE TABLE IF NOT EXISTS {LOG_SCHEMA}.etl_metadata_logs (
-            table_name TEXT PRIMARY KEY,
-            table_rnk INTEGER,
-            year INTEGER,
-            stage_loaded TEXT DEFAULT 'NO',
-            stage_count BIGINT DEFAULT 0,
-            is_base_cleaned TEXT DEFAULT 'NO',
-            dwh_loaded_cnt_base BIGINT DEFAULT 0,
-            is_pr_cleaned TEXT DEFAULT 'NO',
-            dwh_loaded_cnt_pr BIGINT DEFAULT 0,
-            is_basepr_appended TEXT DEFAULT 'NO',
-            basepr_count TEXT DEFAULT 'NO',
-            appended_table_name TEXT,
-            renewal_policy_table TEXT,
-            renewal_policy_count BIGINT DEFAULT 0,
-            last_updated_ts TIMESTAMP DEFAULT NOW()
-        );
-    """
-    with engine.begin() as conn:
-        conn.execute(text(query))
-
 
 # ---------------------------------------------------------------------
 # 🏷️ Normalize table names
@@ -142,13 +90,13 @@ def update_metadata(table_name, step, status=True, row_count=None):
     """Update metadata log tables with load status."""
     pg_hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
     engine = pg_hook.get_sqlalchemy_engine()
-    ensure_claim_log_table(engine)
+    
 
     # Select metadata table
     meta_table = (
-        "etl_metadata_logs"
+        get_log_tables("metadata",JSON_PATH)
         if any(x in table_name for x in ["base", "pr"])
-        else "claim_logs"
+        else get_log_tables("claimlog",JSON_PATH)
     )
 
     year_match = re.search(r'\d{4}', table_name)
@@ -161,37 +109,12 @@ def update_metadata(table_name, step, status=True, row_count=None):
     else:
         table_rnk = 3
 
+    status_val = "YES" if status in [True, "YES", "1"] else "NO"
     with engine.begin() as conn:
         conn.execute(
             text(
                 f"""
-                CREATE SCHEMA IF NOT EXISTS {LOG_SCHEMA};
-                CREATE TABLE IF NOT EXISTS {LOG_SCHEMA}.{meta_table} (
-                    table_name TEXT PRIMARY KEY,
-                    table_rnk INTEGER,
-                    year INTEGER,
-                    stage_loaded TEXT DEFAULT 'NO',
-                    stage_count BIGINT DEFAULT 0,
-                    is_base_cleaned TEXT DEFAULT 'NO',
-                    dwh_loaded_cnt_base BIGINT DEFAULT 0,
-                    is_pr_cleaned TEXT DEFAULT 'NO',
-                    dwh_loaded_cnt_pr BIGINT DEFAULT 0,
-                    is_basepr_appended TEXT DEFAULT 'NO',
-                    basepr_count TEXT DEFAULT 'NO',
-                    appended_table_name TEXT,
-                    renewal_policy_table TEXT,
-                    renewal_policy_count BIGINT DEFAULT 0,
-                    last_updated_ts TIMESTAMP DEFAULT NOW()
-                );
-            """
-            )
-        )
-
-        status_val = "YES" if status in [True, "YES", "1"] else "NO"
-        conn.execute(
-            text(
-                f"""
-                INSERT INTO {LOG_SCHEMA}.{meta_table}
+                INSERT INTO "{LOG_SCHEMA}"."{meta_table}"
                 (table_name, table_rnk, year, {step}, stage_count, last_updated_ts)
                 VALUES (:table_name, :table_rnk, :year, :status, :row_count, :ts)
                 ON CONFLICT (table_name)
@@ -212,7 +135,6 @@ def update_metadata(table_name, step, status=True, row_count=None):
                 "ts": datetime.utcnow(),
             },
         )
-
 
 # ---------------------------------------------------------------------
 # 📥 Process and load file to Postgres
@@ -250,13 +172,10 @@ def process_file_bytes_to_postgres(file_bytes, file_name, engine, schema_name):
                 else:
                     dtype_mapping[col] = TEXT
 
-            ensure_claim_log_table(engine)
-            ensure_meta_log_table(engine)
-
             meta_table = (
-                "etl_metadata_logs"
+                get_log_tables("metadata",JSON_PATH)
                 if any(x in file_name for x in ["base", "pr"])
-                else "claim_logs"
+                else get_log_tables("claimlog",JSON_PATH)
             )
 
             with engine.begin() as conn:
@@ -264,7 +183,7 @@ def process_file_bytes_to_postgres(file_bytes, file_name, engine, schema_name):
                     text(
                         f"""
                         SELECT stage_loaded
-                        FROM {LOG_SCHEMA}.{meta_table}
+                        FROM "{LOG_SCHEMA}"."{meta_table}"
                         WHERE table_name = :table_name
                     """
                     ),
@@ -292,8 +211,6 @@ def process_file_bytes_to_postgres(file_bytes, file_name, engine, schema_name):
     except Exception as e:
         logging.error(f"[process_file_bytes_to_postgres] Error processing {file_name}: {e}", exc_info=True)
         raise
-
-
 # ---------------------------------------------------------------------
 # ☁️ Batch process files from Azure Blob
 # ---------------------------------------------------------------------
@@ -303,7 +220,7 @@ def batch_process_from_blob(**context):
 
     azure_conn = BaseHook.get_connection(AZURE_BLOB_CONN_ID)
     azure_extra = json.loads(azure_conn.extra)
-    schema_name = Variable.get(SCHEMA_NAME_VAR, default_var="pip_stage")
+    schema_name = SCHEMA_NAME_VAR
 
     connection_string = azure_extra["connection_string"]
     container_name = azure_extra["container"]
@@ -351,9 +268,6 @@ def batch_process_from_blob(**context):
                     "keepalives_count": 5,
                 },
             )
-
-            with engine.connect() as conn:
-                conn.execute(f"CREATE SCHEMA IF NOT EXISTS {schema_name};")
 
             blob_client = container_client.get_blob_client(file_name)
             file_bytes = blob_client.download_blob().readall()

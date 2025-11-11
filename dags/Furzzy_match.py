@@ -1,34 +1,37 @@
+# ===============================================================
+# 📦 Airflow ETL: Azure Blob → PostgreSQL (PEP8 + Flake8 Clean)
+# ===============================================================
 import pandas as pd
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
-from datetime import datetime, timedelta
+from datetime import datetime
 from sqlalchemy import text
-from fuzzywuzzy import fuzz
-from sqlalchemy.engine import reflection
 from airflow.models import Variable
 print(Variable.get("renewal_ref_date"))
-from cryptography.fernet import Fernet
-import json
-import base64
 import gc
-import warnings
-import re
+import time
 from tenacity import retry, stop_after_attempt, wait_exponential
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.exc import OperationalError, PendingRollbackError
-import time
-
-
-
-# ✅ Define Source & Target Tables
-SOURCE_SCHEMA = "pip_aggregation" # both source and target has same schema name
-TARGET_SCHEMA = "pip_aggregation" # both source and target has same schema name
+from pathlib import Path
+from schema_table_config import get_schema, get_log_tables
+# ============================================================
+# 🔧 Constants
+# ============================================================
+DAG_DIR = Path(__file__).resolve().parent
+JSON_PATH = str(DAG_DIR / "config" / "schema_metadata_config.json")
+SOURCE_SCHEMA = get_schema("agg", JSON_PATH) 
+TARGET_SCHEMA = get_schema("agg", JSON_PATH)
 #TARGET_TABLE = "final_renewed_policies_22_pr"
 LOG_TABLE = "removed_duplicate_policies"
-log_schema= "pip_log"
-META_TABLE = "etl_metadata_logs"
-# ✅ Define Column Names
+LOG_SCHEMA= get_schema("log", JSON_PATH)
+META_TABLE = get_log_tables("metadata", JSON_PATH)
+
+# ---------------------------------------------------------------------
+# Defining the Columns
+# ---------------------------------------------------------------------
+
 MANUFACTURER_COLUMN = "manufacturer"
 REG_NO_COLUMN = "cleaned_veh_reg_no"
 MODEL_COLUMN = "cleaned_model"
@@ -39,30 +42,14 @@ MONTH_COLUMN = "month"
 POLICY_START_COLUMN = "policy_start_date"
 POLICY_END_COLUMN = "policy_end_date"
 POLICY_NUMBER_COLUMN = "policy_no"
-BRANCH_COLUMN="cleaned_new_branch_name"
-CORRECTED_CHASSIS_ENGINE_NO="corrected_chassis_no"
-CORRECT_INSURANCE_NAME="corrected_name"
-VECHICAL_SEGMENT = "vehicle_segment"
+BRANCH_COLUMN= "cleaned_new_branch_name"
+CORRECTED_CHASSIS_ENGINE_NO= "corrected_chassis_no"
+CORRECT_INSURANCE_NAME= "corrected_name"
+VEHICLE_SEGMENT = "vehicle_segment"
 
-
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-def safe_to_sql_log(df, table_name, schema, engine, if_exists="replace"):
-    """
-    Safe wrapper for to_sql with error handling and rollback protection.
-    """
-    if df.empty:
-        print(f"⚠️ Skipping empty write to `{schema}.{table_name}`.")
-        return
-
-    try:
-        with engine.begin() as conn:  # ensures commit/rollback safety
-            df.to_sql(name=table_name, schema=schema, con=conn, if_exists=if_exists, index=False)
-        print(f"✅ Logged {len(df)} records to `{schema}.{table_name}`.")
-    except SQLAlchemyError as e:
-        engine.dispose()  # discard all pooled connections
-        print(f"❌ Logging failed for `{schema}.{table_name}` due to DB error: {e}")
-        raise
-
+# ---------------------------------------------------------------------
+# Converting Month Format
+# ---------------------------------------------------------------------
 def convert_month_format(value):
     """Converts month format to YYYY-MM-DD"""
     try:
@@ -77,10 +64,14 @@ def convert_month_format(value):
             return pd.to_datetime(value, format="%b %y").strftime("%Y-%m-%d")
     except Exception:
         return None  # Handle invalid values
+
+# ---------------------------------------------------------------------
+# Get latest Base table 
+# --------------------------------------------------------------------- 
 def get_latest_source_table(engine):
     query = f"""
         SELECT appended_table_name 
-        FROM {log_schema}.{META_TABLE}
+        FROM "{LOG_SCHEMA}"."{META_TABLE}"
         WHERE is_basepr_appended = 'YES'
         ORDER BY last_updated_ts DESC
         LIMIT 1;
@@ -88,15 +79,17 @@ def get_latest_source_table(engine):
     result = engine.execute(text(query)).fetchone()
     return result[0] if result else None
 
-
+# ---------------------------------------------------------------------
+# Updating meta log
+# --------------------------------------------------------------------- 
 def update_claim_merge_table(engine, target_table,row_count=None):
     query = f"""
-        UPDATE {log_schema}.{META_TABLE}
+        UPDATE "{LOG_SCHEMA}"."{META_TABLE}"
         SET renewal_policy_table = :final_table,
             renewal_policy_count = :cnt
         WHERE appended_table_name = (
             SELECT appended_table_name 
-            FROM {log_schema}.{META_TABLE}
+            FROM "{LOG_SCHEMA}"."{META_TABLE}"
             WHERE is_basepr_appended = 'YES'
             ORDER BY last_updated_ts DESC
             LIMIT 1
@@ -107,7 +100,9 @@ def update_claim_merge_table(engine, target_table,row_count=None):
             text(query),
             {"final_table": target_table, "cnt": row_count}
         )
-
+# ---------------------------------------------------------------------
+# Applying Fuzzy Matching
+# --------------------------------------------------------------------- 
 
 def fuzzy_matching():
         
@@ -116,14 +111,14 @@ def fuzzy_matching():
     engine = postgres_hook.get_sqlalchemy_engine()
     #SOURCE_TABLE = "finalwith_2022_pr"
     SOURCE_TABLE = get_latest_source_table(engine)
-    value_after_underscore = SOURCE_TABLE.split("_", 1)[1]
-    TARGET_TABLE = "final_renewed_policies_" + value_after_underscore
     if not SOURCE_TABLE:
         print("no source table found")
         return
-    
+    value_after_underscore = SOURCE_TABLE.split("_", 1)[1]
+    TARGET_TABLE = "final_renewed_policies_" + value_after_underscore
+
     query = f"""
-        SELECT * FROM {SOURCE_SCHEMA}.{SOURCE_TABLE} 
+        SELECT * FROM "{SOURCE_SCHEMA}"."{SOURCE_TABLE}" 
         ORDER BY corrected_chassis_no, corrected_name, policy_start_date
     """
     df = pd.read_sql(query, engine)
@@ -149,7 +144,7 @@ def fuzzy_matching():
 
     # Sort DataFrame
     df = df.sort_values(
-        by=[REG_NO_COLUMN,CORRECTED_CHASSIS_ENGINE_NO, POLICY_START_COLUMN, POLICY_END_COLUMN,CORRECT_INSURANCE_NAME], 
+        by=[REG_NO_COLUMN, CORRECTED_CHASSIS_ENGINE_NO, POLICY_START_COLUMN, POLICY_END_COLUMN,CORRECT_INSURANCE_NAME], 
         ascending=[True, True, True, True , True]
     )
 

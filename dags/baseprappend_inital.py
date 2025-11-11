@@ -1,33 +1,35 @@
+# ====================================================================
+# 📦 Airflow ETL: Azure Blob → PostgreSQL (PEP8 + Flake8 Clean)
+# ====================================================================
 import pandas as pd
-from airflow import DAG
-from airflow.operators.python import PythonOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
-from datetime import datetime, timedelta
+from datetime import datetime
 from sqlalchemy import text
 from fuzzywuzzy import fuzz
-from sqlalchemy.engine import reflection
 from airflow.models import Variable
-from cryptography.fernet import Fernet
 import json
-import base64
-import gc
-import warnings
-import re
 from tenacity import retry, stop_after_attempt, wait_exponential
 from sqlalchemy.exc import SQLAlchemyError
-
-
-# ✅ Define Source & Target Tables
-SOURCE_SCHEMA = "pip_aggregation" # both source and target has same schema name
+from pathlib import Path
+from schema_table_config import get_schema, get_log_tables
+# ---------------------------------------------------------------------
+# 🔧 Constants
+# ---------------------------------------------------------------------
+DAGS_DIR = Path(__file__).resolve().parent
+JSON_PATH = str(DAGS_DIR / "config" / "schema_metadata_config.json")
+SOURCE_SCHEMA = get_schema("agg",JSON_PATH)
 BASE_TABLE = "base_2022"
 PR_TABLE = "pr_2022"
-TARGET_SCHEMA = "pip_aggregation"
+TARGET_SCHEMA = get_schema("agg",JSON_PATH)# both source and target has same schema name
 TARGET_TABLE = "finalwith_2022_pr"
 LOG_TABLE = "removed_duplicate_policies"
-log_schema= "pip_log"
-META_TABLE = "etl_metadata_logs"
+log_schema= get_schema("log",JSON_PATH)
+META_TABLE = get_log_tables("metadata",JSON_PATH)
 FINAL_TABLE = "final_renewed_policies"
-# ✅ Define Column Names
+
+# ---------------------------------------------------------------------
+# Defining the Columns
+# ---------------------------------------------------------------------
 MANUFACTURER_COLUMN = "manufacturer"
 REG_NO_COLUMN = "cleaned_veh_reg_no"
 MODEL_COLUMN = "cleaned_model"
@@ -43,7 +45,11 @@ CORRECTED_CHASSIS_ENGINE_NO="corrected_chassis_no"
 CORRECT_INSURANCE_NAME="corrected_name"
 VECHICAL_SEGMENT = "vehicle_segment"
 
+# ---------------------------------------------------------------------
+# Defining the Sensitive Columns
+# ---------------------------------------------------------------------
 SENSITIVE_COLUMNS = json.loads(Variable.get("sensitive_columns", default_var="[]"))
+
 # ENCRYPTION_KEY = Variable.get("encryption_key")
 # FERNET = Fernet(ENCRYPTION_KEY)
 
@@ -93,7 +99,9 @@ SENSITIVE_COLUMNS = json.loads(Variable.get("sensitive_columns", default_var="[]
 #     df = encrypt_chunk(df)
 #     return df.to_sql(*args, **kwargs)
 
-
+# ---------------------------------------------------------------------
+# Create log Table 
+# ---------------------------------------------------------------------
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def safe_to_sql_log(df, table_name, schema, engine, if_exists="replace"):
     """
@@ -111,10 +119,16 @@ def safe_to_sql_log(df, table_name, schema, engine, if_exists="replace"):
         engine.dispose()  # discard all pooled connections
         print(f"❌ Logging failed for `{schema}.{table_name}` due to DB error: {e}")
         raise
+
+    
+# ---------------------------------------------------------------------
+# Updating meta log
+# --------------------------------------------------------------------- 
+   
 def update_metadata(engine, src_table, target_table, row_count=None):
     with engine.begin() as conn:
         conn.execute(text(f"""
-            UPDATE {log_schema}.{META_TABLE}
+            UPDATE "{log_schema}"."{META_TABLE}"
             SET is_basepr_appended = 'YES',
                 appended_table_name = :target,
                 basepr_count = :row_count,
@@ -126,6 +140,11 @@ def update_metadata(engine, src_table, target_table, row_count=None):
             "row_count": row_count if row_count is not None else 0,
             "ts": datetime.utcnow()
         })
+
+# ---------------------------------------------------------------------
+# Converting Month Format
+# ---------------------------------------------------------------------
+
 def convert_month_format(value):
     """Converts month format to YYYY-MM-DD"""
     try:
@@ -140,6 +159,10 @@ def convert_month_format(value):
             return pd.to_datetime(value, format="%b %y").strftime("%Y-%m-%d")
     except Exception:
         return None  # Handle invalid values
+    
+# ---------------------------------------------------------------------
+# Appending and loading data to Aggregation Layer
+# ---------------------------------------------------------------------
 
 def append_base_pr_initial():
     """Appends `base` and `pr` data, identifies common & different columns, and performs cleaning."""
@@ -151,20 +174,20 @@ def append_base_pr_initial():
         conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {TARGET_SCHEMA};"))
 
     # ✅ Extract Data from `base` and `pr`
-    query_base = f"SELECT * FROM {SOURCE_SCHEMA}.{BASE_TABLE} limit 1000"
-    query_pr = f"SELECT * FROM {SOURCE_SCHEMA}.{PR_TABLE} limit 1000"
+    query_base = f'SELECT * FROM "{SOURCE_SCHEMA}"."{BASE_TABLE}" limit 1000'
+    query_pr = f'SELECT * FROM "{SOURCE_SCHEMA}"."{PR_TABLE}" limit 1000'
     
     df_base = pd.read_sql(query_base, engine)
     df_pr = pd.read_sql(query_pr, engine)
 
-    for col in SENSITIVE_COLUMNS:
-                if col in df_base.columns:
-                    df_base[col] = df_base[col].astype(str).apply(lambda x: decrypt_column(x, FERNET))
-                    print("🔓 base Decryption done")
-    for col in SENSITIVE_COLUMNS:
-                if col in df_pr.columns:
-                    df_pr[col] = df_pr[col].astype(str).apply(lambda x: decrypt_column(x, FERNET))
-                    print("🔓 PR Decryption done")
+    # for col in SENSITIVE_COLUMNS:
+    #             if col in df_base.columns:
+    #                 df_base[col] = df_base[col].astype(str).apply(lambda x: decrypt_column(x, FERNET))
+    #                 print("🔓 base Decryption done")
+    # for col in SENSITIVE_COLUMNS:
+    #             if col in df_pr.columns:
+    #                 df_pr[col] = df_pr[col].astype(str).apply(lambda x: decrypt_column(x, FERNET))
+    #                 print("🔓 PR Decryption done")
     
     
     print(f"📂 Extracted {len(df_base)} records from `{SOURCE_SCHEMA}.{BASE_TABLE}`.")

@@ -1,18 +1,36 @@
+# ====================================================================
+# 📦 Airflow ETL: Azure Blob → PostgreSQL (PEP8 + Flake8 Clean)
+# ====================================================================
+
 import pandas as pd
 import re
-from airflow import DAG
-from airflow.operators.python import PythonOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from datetime import datetime
 from sqlalchemy import text
-from sqlalchemy.types import String  # ✅ Fix for `policy_number` type issue
-from airflow.models import Variable
+from sqlalchemy.types import String
+from pathlib import Path
+from schema_table_config import get_column_mapping, get_log_tables, get_schema
 
-# ✅ Define variables for source & target
-SOURCE_SCHEMA = "pip_stage"
+# ---------------------------------------------------------------------
+# 🔧 Constants
+# ---------------------------------------------------------------------
+
+DAGS_DIR = Path(__file__).resolve().parent
+JSON_PATH = str(DAGS_DIR / "config" / "schema_metadata_config.json")
+
+SOURCE_SCHEMA = get_schema("stage", JSON_PATH)
 # SOURCE_TABLE = "2024_pr"  # Change for different PR files
-TARGET_SCHEMA = "pip_aggregation"
-LOG_SCHEMA = "pip_log"
+TARGET_SCHEMA = get_schema("agg", JSON_PATH)
+LOG_SCHEMA = get_schema("log", JSON_PATH)
+
+# ✅ Column Mapping
+COLUMN_JSON = str(DAGS_DIR / "config" / "column_mapping.json")
+COLUMN_MAPPING = get_column_mapping("pr", COLUMN_JSON)
+
+# ---------------------------------------------------------------------
+# Defining the Columns
+# ---------------------------------------------------------------------
+
 NET_PREMIUM_COLUMN = "net_premium"
 POLICY_START_COLUMN = "policy_start_date"
 POLICY_END_COLUMN = "policy_end_date"
@@ -20,43 +38,14 @@ POLICY_ISSUE_COLUMN = "policy_issue_date"
 POLICY_NUMBER_COLUMN = "policy_no"
 NOP_COLUMN = "nop"
 GST_PERCENTAGE = 0.18  # ✅ GST percentage
-META_TABLE = "etl_metadata_logs"
+META_TABLE = get_log_tables("metadata", JSON_PATH)
 POSTGRES_CONN_ID = "postgres_cloud_prochurn"
 
-# ✅ Column Mapping
-COLUMN_MAPPING = {
-    "policy_no.": "policy_no",
-    "policy_number": "policy_no",
-    "net_tp_premium_/_war_&_srcc": "total_tp_premium",
-    "net_od_premium": "total_od_premium",
-    "model_name": "model",
-    "manufacturer/make": "manufacturer",
-    "make_name": "manufacturer",
-    "variant": "model_variant",
-    "age": "vehicle_age",
-    "reg_no": "veh_reg_no",
-    "chassis_number": "chassis_no",
-    "previous_year_ncb_%": "previous_year_ncb_percentage",
-    "ncb_%_previous_year": "previous_year_ncb_percentage",
-    "new_branch_name__2": "new_branch_name_2",
-    "location": "location",
-    "system_channel": "new_vertical",
-    "engine_number": "engine_no",
-    "biztype": "business_type",
-    "sum_insured": "vehicle_idv",
-    "product_name__2": "product_name_2",
-    "enginenumber": "engine_no",
-    "before_gst_add-on_gwp":"before_gst_add_on_gwp",
-    "current_year_ncb_amount":"ncb_amount",
-    #"current_year_ncb_%":"applicable_discount_with_ncb",
-    "add_on_cover_premium":"before_gst_add_on_gwp",
-    "state2":"state",
-    "office_name":"office_name",
-    "total_sum_insured":"vehicle_idv",
-    "channel":"new_vertical",
-    "detariff_disc_rate":"applicable_discount_with_ncb"
-}
-# ✅ Fixed Text Cleaning Function
+
+# ---------------------------------------------------------------------
+# 🧹 Clean column names
+# ---------------------------------------------------------------------
+
 def clean_text(value):
     """Cleans text fields by:
     - Removing extra spaces
@@ -75,7 +64,9 @@ def clean_text(value):
     value = value.lower()
 
     return value.replace(" ", "")  # Remove all spaces for insured_name
-
+# ---------------------------------------------------------------------
+# 🧹 Clean Policy Numbers
+# ---------------------------------------------------------------------
 def clean_policy_number(value):
     """Ensures `policy_number` is numeric & removes any leading `'`."""
     if pd.isna(value):
@@ -83,12 +74,15 @@ def clean_policy_number(value):
     value = str(value).strip().lstrip("'")  # Remove leading `'`
     return value if value.isdigit() else None  # Keep valid numbers
 
+# ---------------------------------------------------------------------
+# 🧹 Get Pr Table From Metadata Log
+# ---------------------------------------------------------------------
 def load_pr_table():
     hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
     engine = hook.get_sqlalchemy_engine()
     with engine.begin() as conn:
         query = f"""SELECT table_name 
-        FROM {LOG_SCHEMA}.{META_TABLE}
+        FROM "{LOG_SCHEMA}"."{META_TABLE}"
         WHERE table_name ILIKE 'pr_%'
         AND stage_loaded = 'YES' 
         AND is_pr_cleaned = 'NO'  
@@ -98,10 +92,12 @@ def load_pr_table():
         if results:
             return [r[0] for r in results]
         else:
-            print(f"⚠️ No base tables found in {SOURCE_SCHEMA}, skipping base_clean and moving on.")
+            print(f"⚠️ No PR tables found in {SOURCE_SCHEMA}, skipping base_clean and moving on.")
             return []
 
-    
+# ---------------------------------------------------------------------
+# 🧹 Update the Log in Meta Table
+# ---------------------------------------------------------------------    
 def update_metadata(table_name, step, status="NO", row_count=None, **context):
     pg_hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
     engine = pg_hook.get_sqlalchemy_engine()
@@ -110,7 +106,7 @@ def update_metadata(table_name, step, status="NO", row_count=None, **context):
         status_val = "YES" if status in [True, "YES", "1"] else "NO"
         
         conn.execute(text(f"""
-            INSERT INTO {LOG_SCHEMA}.{META_TABLE} 
+            INSERT INTO "{LOG_SCHEMA}"."{META_TABLE}" 
                 (table_name, {step}, dwh_loaded_cnt_pr, last_updated_ts)
             VALUES (:table_name, :status, :row_count, :ts)
             ON CONFLICT (table_name)
@@ -124,7 +120,9 @@ def update_metadata(table_name, step, status="NO", row_count=None, **context):
             "ts": datetime.utcnow()
         })
 
-
+# ---------------------------------------------------------------------
+# 🧹clean and load the pr tables into aggregation Layer
+# ---------------------------------------------------------------------
 def clean_and_load_pr_data():
     """Cleans PR file data, logs removed rows, and writes logs to Airflow."""
     postgres_hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
@@ -139,13 +137,13 @@ def clean_and_load_pr_data():
     print(f"Found tables to process: {source_tables}")
     # ✅ Ensure schemas exist
     with engine.begin() as conn:
-        conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {TARGET_SCHEMA};"))
-        conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {LOG_SCHEMA};"))
+        conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{TARGET_SCHEMA}";'))
+        conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{LOG_SCHEMA}";'))
 
     for source_table in source_tables:
 
         # ✅ Extract data from `SOURCE_TABLE`
-        query = f"SELECT * FROM {SOURCE_SCHEMA}.\"{source_table}\""
+        query = f'SELECT * FROM "{SOURCE_SCHEMA}".\"{source_table}\"'
         df = pd.read_sql(query, engine)
         initial_count = len(df)
         print(f"📂 Extracted {initial_count} records from `{SOURCE_SCHEMA}.{source_table}`.")

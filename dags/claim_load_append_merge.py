@@ -1,5 +1,6 @@
-from airflow import DAG
-from airflow.operators.python import PythonOperator
+# ====================================================================
+# 📦 Airflow ETL: Azure Blob → PostgreSQL (PEP8 + Flake8 Clean)
+# ====================================================================
 from datetime import datetime
 import pandas as pd
 from sqlalchemy import create_engine
@@ -7,23 +8,30 @@ import numpy as np
 import re
 from sqlalchemy.types import Text,Integer,Float,DateTime
 from sqlalchemy import text
-# from airflow.hooks.postgres_hook import PostgresHook
 from airflow.providers.postgres.hooks.postgres import PostgresHook
-from airflow.models import Variable
-from sqlalchemy.exc import OperationalError, PendingRollbackError
 import time, gc
+from pathlib import Path
+from schema_table_config import get_schema,get_log_tables
+
+# ---------------------------------------------------------------------
+# 🔧 Constants
+# ---------------------------------------------------------------------
+
+DAGS_DIR = Path(__file__).resolve().parent
+JSON_PATH = str(DAGS_DIR / "config" / "schema_metadata_config")
 
 POSTGRES_CONN_ID = "postgres_cloud_prochurn"
-
-
-
-SOURCE_SCHEMA = "pip_stage"
-TARGET_SCHEMA = "pip_aggregation"
+SOURCE_SCHEMA = get_schema("stage", JSON_PATH)
+TARGET_SCHEMA = get_schema("agg", JSON_PATH)
 TARGET_TABLE1 = "claim_append"
 TARGET_TABLE2 = "claim_merge"
-LOG_SCHEMA = "pip_log"
-CLAIM_LOG = "claim_logs"
-META_DATA = "etl_metadata_logs"
+LOG_SCHEMA = get_schema("log", JSON_PATH)
+CLAIM_LOG = get_log_tables("claimlog", JSON_PATH)
+META_DATA = get_log_tables("metadata", JSON_PATH)
+
+# ---------------------------------------------------------------------
+# Removed Log Details
+# ---------------------------------------------------------------------
 
 def log_removed_rows(df_removed, reason, engine):
     """Log removed claim rows with reason into pip_log.claim_removed_reason"""
@@ -41,6 +49,10 @@ def log_removed_rows(df_removed, reason, engine):
     )
     print(f"⚠️ Logged {len(df_removed)} removed rows – Reason: {reason}")
 
+# ---------------------------------------------------------------------
+# Data Type Mapping
+# ---------------------------------------------------------------------
+
 def d_mapping(df):
     mapping = {}
     for c in df.columns:
@@ -54,23 +66,27 @@ def d_mapping(df):
         else:
             mapping[c] = Text()
     return mapping
-
+# ---------------------------------------------------------------------
+# Getting Base & Pr Table from Meta data 
+# ---------------------------------------------------------------------
 def get_latest_basepr(engine):
     query = f"""
         SELECT renewal_policy_table
-        FROM {LOG_SCHEMA}.{META_DATA}
+        FROM "{LOG_SCHEMA}"."{META_DATA}"
         WHERE renewal_policy_table IS NOT NULL
         ORDER BY last_updated_ts DESC
         LIMIT 1
     """
     result = engine.execute(text(query)).fetchone()
     return result[0] if result else None
-
+# ---------------------------------------------------------------------
+# Updating Metadata 
+# ---------------------------------------------------------------------
 def update_claim_metadata(engine, table_name, row_count=None):
     """Update claim_logs after append step"""
     with engine.begin() as conn:
         conn.execute(text(f"""
-            UPDATE {LOG_SCHEMA}.{CLAIM_LOG}
+            UPDATE "{LOG_SCHEMA}"."{CLAIM_LOG}"
             SET is_appended = 'YES',
                 appended_count = :row_count,
                 last_updated_ts = :ts
@@ -81,13 +97,15 @@ def update_claim_metadata(engine, table_name, row_count=None):
             "ts": datetime.utcnow()
         })
 
-
+# ---------------------------------------------------------------------
+# Appending Claim Tables 
+# ---------------------------------------------------------------------
 def append_claim_table():
 
     pg_hook = PostgresHook(postgres_conn_id = POSTGRES_CONN_ID)
     engine = pg_hook.get_sqlalchemy_engine()
     with engine.begin() as conn:
-        conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {TARGET_SCHEMA};"))
+        conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{TARGET_SCHEMA}";'))
 
     print("connection done")
 
@@ -100,7 +118,7 @@ def append_claim_table():
     """Append all staged claim tables into one consolidated claim_append table."""
     query = f"""
         SELECT table_name 
-        FROM {LOG_SCHEMA}.{CLAIM_LOG}
+        FROM "{LOG_SCHEMA}"."{CLAIM_LOG}"
         WHERE stage_loaded = 'YES' AND is_appended = 'NO'
         ORDER BY year ASC
     """
@@ -113,7 +131,7 @@ def append_claim_table():
     dfs = []
     for _, row in claim_tables.iterrows():
         table_name = row["table_name"]
-        df = pd.read_sql(f"SELECT * FROM {SOURCE_SCHEMA}.{table_name}", engine)
+        df = pd.read_sql(f'SELECT * FROM "{SOURCE_SCHEMA}"."{table_name}"', engine)
 
         # Fix column renaming if required
         if "status_of_claim.1" in df.columns and "updated_status" not in df.columns:
@@ -132,12 +150,16 @@ def append_claim_table():
     print(f"✅ Appended all claim tables into {TARGET_SCHEMA}.claim_append with {len(final_df)} rows.")
     engine.dispose()
     gc.collect()
-# step 2 merge and aggregate the claim appended table
+
+# ---------------------------------------------------------------------
+# Merging All Claim table With Aggregated Columns
+# ---------------------------------------------------------------------
+
 def merge_claim_table():
     pg_hook = PostgresHook(postgres_conn_id = POSTGRES_CONN_ID)
     engine = pg_hook.get_sqlalchemy_engine()
 
-    query = f" SELECT * FROM {TARGET_SCHEMA}.{TARGET_TABLE1}"
+    query = f' SELECT * FROM "{TARGET_SCHEMA}"."{TARGET_TABLE1}"'
     df = pd.read_sql(query,engine)
 
     def clean_name(name):
@@ -227,7 +249,7 @@ def merge_claim_table():
     # ✅ Insert or update log entry for claim_merge
     with engine.begin() as conn:
         conn.execute(text(f"""
-            INSERT INTO {LOG_SCHEMA}.{CLAIM_LOG} (table_name, is_merged, merged_count, last_updated_ts)
+            INSERT INTO "{LOG_SCHEMA}"."{CLAIM_LOG}" (table_name, is_merged, merged_count, last_updated_ts)
             VALUES ('claim_merge', 'YES', :row_count, :ts)
             ON CONFLICT (table_name) DO UPDATE
             SET is_merged = 'YES',
@@ -240,6 +262,9 @@ def merge_claim_table():
 
     print(f"✅ {len(df)} rows merged into {TARGET_SCHEMA}.claim_merge")
 
+# ---------------------------------------------------------------------
+# Merging Base Pr Table With Claim Tables 
+# ---------------------------------------------------------------------
 
 def merge_basepr_with_claim():
     
@@ -258,7 +283,7 @@ def merge_basepr_with_claim():
     CLAIM_TABLE = TARGET_TABLE2
     FINAL_TABLE = "basepr_merged_with_claim"
     # Load claim ONCE - full, since it's smaller and doesn't cause issues
-    claim = pd.read_sql(f"SELECT * FROM {TARGET_SCHEMA}.{CLAIM_TABLE}", con=engine)
+    claim = pd.read_sql(f'SELECT * FROM "{TARGET_SCHEMA}"."{CLAIM_TABLE}"', con=engine)
     for col in ["policy_start_date", "policy_end_date"]:
         if col in claim.columns:
             claim[col] = pd.to_datetime(claim[col], errors="coerce")
@@ -272,7 +297,7 @@ def merge_basepr_with_claim():
 
     while True:
         query = f"""
-            SELECT * FROM {TARGET_SCHEMA}.{BASE_PR_TABLE}
+            SELECT * FROM "{TARGET_SCHEMA}"."{BASE_PR_TABLE}"
             ORDER BY policy_no
             OFFSET {offset} LIMIT {chunk_size}
         """
@@ -310,7 +335,7 @@ def merge_basepr_with_claim():
     # ✅ Insert or update log entry for basepr_merged_with_claim
     with engine.begin() as conn:
         conn.execute(text(f"""
-            INSERT INTO {LOG_SCHEMA}.{CLAIM_LOG} (table_name, is_basepr_claim_merged,
+            INSERT INTO "{LOG_SCHEMA}"."{CLAIM_LOG}" (table_name, is_basepr_claim_merged,
                                                  cnt, last_updated_ts)
             VALUES ('basepr_merged_with_claim', 'YES', :row_count, :ts)
             ON CONFLICT (table_name) DO UPDATE

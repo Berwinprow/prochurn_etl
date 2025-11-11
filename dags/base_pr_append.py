@@ -1,33 +1,35 @@
+# ====================================================================
+# 📦 Airflow ETL: Azure Blob → PostgreSQL (PEP8 + Flake8 Clean)
+# ====================================================================
 import pandas as pd
-from airflow import DAG
-from airflow.operators.python import PythonOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
-from datetime import datetime, timedelta
+from datetime import datetime
 from sqlalchemy import text
-from fuzzywuzzy import fuzz
-from sqlalchemy.engine import reflection
-from airflow.models import Variable
-from cryptography.fernet import Fernet
 import json
-import base64
-import gc
-import warnings
-import re
+from fuzzywuzzy import fuzz
+from airflow.models import Variable
 from tenacity import retry, stop_after_attempt, wait_exponential
 from sqlalchemy.exc import SQLAlchemyError
+from pathlib import Path
+from schema_table_config import get_schema, get_log_tables
 
-
-# ✅ Define Source & Target Tables
-SOURCE_SCHEMA = "pip_aggregation" # both source and target has same schema name
-# BASE_TABLE = "base_2022"
-# PR_TABLE = '"pr_2022"'
-TARGET_SCHEMA = "pip_aggregation" # both source and target has same schema name
+# ---------------------------------------------------------------------
+# 🔧 Constants
+# ---------------------------------------------------------------------
+DAGS_DIR = Path(__file__).resolve().parent
+JSON_PATH = str(DAGS_DIR / "config" / "schema_metadata_config.json")
+SOURCE_SCHEMA = get_schema("agg",JSON_PATH)
+TARGET_SCHEMA = get_schema("agg",JSON_PATH)# both source and target has same schema name
 # TARGET_TABLE = "finalwith_2022_pr"
 LOG_TABLE = "removed_duplicate_policies"
-log_schema= "pip_log"
+log_schema= get_schema("log",JSON_PATH)
 # FINAL_TABLE = "final_renewed_policies_test"
-META_TABLE = "etl_metadata_logs"
-# ✅ Define Column Names
+META_TABLE = get_log_tables("metadata",JSON_PATH)
+
+# ---------------------------------------------------------------------
+# Defining the Columns
+# ---------------------------------------------------------------------
+
 MANUFACTURER_COLUMN = "manufacturer"
 REG_NO_COLUMN = "cleaned_veh_reg_no"
 MODEL_COLUMN = "cleaned_model"
@@ -38,19 +40,27 @@ MONTH_COLUMN = "month"
 POLICY_START_COLUMN = "policy_start_date"
 POLICY_END_COLUMN = "policy_end_date"
 POLICY_NUMBER_COLUMN = "policy_no"
-BRANCH_COLUMN="cleaned_new_branch_name"
-CORRECTED_CHASSIS_ENGINE_NO="corrected_chassis_no"
-CORRECT_INSURANCE_NAME="corrected_name"
+BRANCH_COLUMN= "cleaned_new_branch_name"
+CORRECTED_CHASSIS_ENGINE_NO= "corrected_chassis_no"
+CORRECT_INSURANCE_NAME= "corrected_name"
 VECHICAL_SEGMENT = "vehicle_segment"
+
+# ---------------------------------------------------------------------
+# Defining the Sensitive Columns
+# ---------------------------------------------------------------------
 
 SENSITIVE_COLUMNS = json.loads(Variable.get("sensitive_columns", default_var="[]"))
 # ENCRYPTION_KEY = Variable.get("encryption_key")
 # FERNET = Fernet(ENCRYPTION_KEY)
 
+# ---------------------------------------------------------------------
+# getting the latest base table from meta log
+# ---------------------------------------------------------------------
+
 def get_latest_base(engine):
     query = f"""
         SELECT appended_table_name
-        FROM {log_schema}.{META_TABLE}
+        FROM "{log_schema}"."{META_TABLE}"
         WHERE is_basepr_appended = 'YES'
         ORDER BY last_updated_ts DESC
         LIMIT 1
@@ -60,10 +70,14 @@ def get_latest_base(engine):
         return None
     return df.at[0, "appended_table_name"]
 
+# ---------------------------------------------------------------------
+# getting the pr table from meta log
+# ---------------------------------------------------------------------
+
 def get_next_pr(engine):
     query = f"""
         SELECT table_name
-        FROM {log_schema}.{META_TABLE}
+        FROM "{log_schema}"."{META_TABLE}"
         WHERE is_basepr_appended = 'NO'
         ORDER BY year, table_rnk ASC
         LIMIT 1
@@ -73,6 +87,9 @@ def get_next_pr(engine):
         return None
     return df.at[0, "table_name"]
 
+# ---------------------------------------------------------------------
+# Create log Table 
+# ---------------------------------------------------------------------
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def safe_to_sql_log(df, table_name, schema, engine, if_exists="replace"):
@@ -92,6 +109,10 @@ def safe_to_sql_log(df, table_name, schema, engine, if_exists="replace"):
         print(f"❌ Logging failed for `{schema}.{table_name}` due to DB error: {e}")
         raise
 
+# ---------------------------------------------------------------------
+# Converting Month Format
+# ---------------------------------------------------------------------
+
 def convert_month_format(value):
     """Converts month format to YYYY-MM-DD"""
     try:
@@ -107,10 +128,14 @@ def convert_month_format(value):
     except Exception:
         return None  # Handle invalid values
     
+# ---------------------------------------------------------------------
+# Updating meta log
+# --------------------------------------------------------------------- 
+   
 def update_metadata(engine, src_table, target_table, row_count=None):
     with engine.begin() as conn:
         conn.execute(text(f"""
-            UPDATE {log_schema}.{META_TABLE}
+            UPDATE "{log_schema}"."{META_TABLE}"
             SET is_basepr_appended = 'YES',
                 appended_table_name = :target,
                 basepr_count = :row_count,
@@ -122,6 +147,10 @@ def update_metadata(engine, src_table, target_table, row_count=None):
             "row_count": row_count if row_count is not None else 0,
             "ts": datetime.utcnow()
         })
+
+# ---------------------------------------------------------------------
+# Getting Base Pr Table 
+# ---------------------------------------------------------------------
 
 def run_all_iterations():
     postgres_hook = PostgresHook(postgres_conn_id="postgres_cloud_prochurn")
@@ -145,18 +174,22 @@ def run_all_iterations():
 
         append_base_pr(base_table, pr_table, target_table, engine)
 
+# ---------------------------------------------------------------------
+# Appending and loading data to Aggregation Layer
+# ---------------------------------------------------------------------
+
 def append_base_pr(base_table,pr_table,target_table,engine):
     """Appends `base` and `pr` data, identifies common & different columns, and performs cleaning."""
-    postgres_hook = PostgresHook(postgres_conn_id="postgres_cloud_prochurn")
-    engine = postgres_hook.get_sqlalchemy_engine()
+    # postgres_hook = PostgresHook(postgres_conn_id="postgres_cloud_prochurn")
+    # engine = postgres_hook.get_sqlalchemy_engine()
 
     # ✅ Ensure Target Schema Exists
     with engine.begin() as conn:
         conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {TARGET_SCHEMA};"))
 
     # ✅ Extract Data from `base` and `pr`
-    query_base = f"SELECT * FROM {SOURCE_SCHEMA}.{base_table}"
-    query_pr = f"SELECT * FROM {SOURCE_SCHEMA}.{pr_table}"
+    query_base = f'SELECT * FROM "{SOURCE_SCHEMA}"."{base_table}"'
+    query_pr = f'SELECT * FROM "{SOURCE_SCHEMA}"."{pr_table}"'
     
     df_base = pd.read_sql(query_base, engine)
     df_pr = pd.read_sql(query_pr, engine)
@@ -229,7 +262,7 @@ def append_base_pr(base_table,pr_table,target_table,engine):
     df = df[df[CHASSIS_COLUMN] != '']  # Keep only rows where `nop` is 1
     removed_nop["removal_reason"] = "chassis no is blank"
 
-    print(f"📌 Removed {len(removed_nop)} rows where `nop` != 1.")
+    print(f"📌 Removed {len(removed_nop)} rows where chassis no is blank.")
 
     # ✅ Step 2: Ensure Chassis & Engine Columns are Strings
     df[CHASSIS_COLUMN] = df[CHASSIS_COLUMN].astype(str).fillna("")
@@ -289,7 +322,7 @@ def append_base_pr(base_table,pr_table,target_table,engine):
     # ✅ Convert Month Column
     df["formatted_month"] = df[MONTH_COLUMN].apply(convert_month_format)
 
-    df["cleaned_chassis_engine_no"] = df[CHASSIS_COLUMN].astype(str) + "_" + df[ENGINE_COLUMN].astype(str)
+    # df["cleaned_chassis_engine_no"] = df[CHASSIS_COLUMN].astype(str) + "_" + df[ENGINE_COLUMN].astype(str)
 
     # ✅ Generate Policy & Chassis Keys
     df["policy_key"] = df[POLICY_NUMBER_COLUMN].astype(str) + "_" + df[POLICY_START_COLUMN].astype(str) + "_" + df[POLICY_END_COLUMN].astype(str)

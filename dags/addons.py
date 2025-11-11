@@ -1,26 +1,38 @@
+# ====================================================================
+# 📦 Airflow ETL: Azure Blob → PostgreSQL (PEP8 + Flake8 Clean)
+# ====================================================================
 import pandas as pd
-import json
-from airflow import DAG
-from airflow.operators.python import PythonOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from datetime import datetime
 from sqlalchemy import text
 from sqlalchemy.types import String
 from airflow.models import Variable
+from pathlib import Path
+from schema_table_config import get_log_tables, get_schema, get_column_mapping
+
+
+# ---------------------------------------------------------------------
+# 🔧 Constants
+# ---------------------------------------------------------------------
+DAG_DIR = Path(__file__).resolve().parent
+JSON_PATH = str(DAG_DIR / "config" / "schema_metadata_config.json")
 
 POSTGRES_CONN_ID = "postgres_cloud_prochurn"
-SOURCE_SCHEMA = "pip_aggregation"
-ZONE_TABLE = 'zoned_map'
+SOURCE_SCHEMA = get_schema("agg", JSON_PATH)
+COLUMN_JSON = str(DAG_DIR / "config" / "column_mapping.json")
+ZONE_TABLE = get_column_mapping("zonemapping", COLUMN_JSON)
 BATCH_SIZE = 50000
 TARGET_TABLE = "baseprclaim"
-META_TABLE = "etl_metadata_logs"
-CLAIM_TABLE = "claim_logs"
-LOG_SCHEMA = "pip_log"
-
-# ✅ Fetch latest claim_merged_with_basepr table from metadata
+META_TABLE = get_log_tables("metadata", JSON_PATH)
+CLAIM_TABLE = get_log_tables("claimlog", JSON_PATH)
+LOG_SCHEMA = get_schema("log", JSON_PATH)
+FEATURE_LOG = get_log_tables("featurelog", JSON_PATH)
+# ---------------------------------------------------------------------
+# To Fetch latest claim_merged_with_basepr table from metadata 
+# ---------------------------------------------------------------------
 def get_latest_claim_merged_with_basepr(engine):
     query = f"""
-        SELECT table_name FROM {LOG_SCHEMA}.{CLAIM_TABLE}
+        SELECT table_name FROM "{LOG_SCHEMA}"."{CLAIM_TABLE}"
         WHERE is_basepr_claim_merged = 'YES'
         ORDER BY last_updated_ts DESC
         LIMIT 1;
@@ -28,32 +40,10 @@ def get_latest_claim_merged_with_basepr(engine):
     result = engine.execute(text(query)).fetchone()
     return result[0] if result else None
 
-# ✅ Ensure feature_eng_log table exists with proper columns
-def ensure_feature_log_table(engine):
-    query = f"""
-        CREATE TABLE IF NOT EXISTS {LOG_SCHEMA}.feature_eng_log (
-            date DATE PRIMARY KEY,
-            addons TEXT,
-            count_of_addons BIGINT,
-            new_col TEXT,
-            count_of_new_col BIGINT,
-            future_pred TEXT,
-            count_of_future_pred BIGINT,
-            renewed_policy_count BIGINT,
-            non_renewed_policy_count BIGINT,
-            segmentation TEXT,
-            segmentation_count BIGINT,
-            reason TEXT,
-            reason_count BIGINT
-        );
-    """
-    with engine.begin() as conn:
-        conn.execute(text(query))
-
-# ✅ Update feature engineering log
+# ---------------------------------------------------------------------
+# To Update the Meta data  
+# ---------------------------------------------------------------------
 def update_feature_log(engine, col_name, target_table, count_val=None):
-    ensure_feature_log_table(engine)  # make sure table exists
-
     # Always prepare count_col
     count_col = f"count_of_{col_name}"
 
@@ -61,7 +51,7 @@ def update_feature_log(engine, col_name, target_table, count_val=None):
     cnt = count_val if count_val is not None else 0
 
     query = f"""
-        INSERT INTO {LOG_SCHEMA}.feature_eng_log(date, {col_name}, {count_col})
+        INSERT INTO "{LOG_SCHEMA}"."{FEATURE_LOG}"(date, {col_name}, {count_col})
         VALUES (:dt, :tbl, :cnt)
         ON CONFLICT (date)
         DO UPDATE SET
@@ -74,7 +64,9 @@ def update_feature_log(engine, col_name, target_table, count_val=None):
             text(query),
             {"dt": datetime.now().date(), "tbl": target_table, "cnt": cnt}
         )
-
+# ---------------------------------------------------------------------
+# Extra conditions Addons Before Feature engineering
+# ---------------------------------------------------------------------
 
 def addon_column():
     postgres_hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
@@ -86,14 +78,14 @@ def addon_column():
         raise ValueError("❌ No claim_merged_with_basepr table found in metadata!")
 
     # 2. Read data
-    query = f"""SELECT * FROM {SOURCE_SCHEMA}.{SOURCE_TABLE}"""
+    query = f'SELECT * FROM "{SOURCE_SCHEMA}"."{SOURCE_TABLE}"'
     df = pd.read_sql(query, engine)
     print(f"✅ Fetched {len(df)} rows from {SOURCE_SCHEMA}.{SOURCE_TABLE}")
 
     # 3. Apply zone mapping
-    zone_map_df = json.loads(Variable.get(ZONE_TABLE))
+    # zone_map_df = json.loads(Variable.get(ZONE_TABLE))
     df['Zone'] = df.apply(
-        lambda row: zone_map_df.get(str(row['state']).upper(), row['Zone'])
+        lambda row: ZONE_TABLE.get(str(row['state']).upper(), row['Zone'])
         if pd.isna(row['Zone']) else row['Zone'],
         axis=1
     )
@@ -106,6 +98,12 @@ def addon_column():
         df = df[df["corrected_name"].notna()]
     else:
         print("❗ 'corrected_name' column not found in DataFrame")
+    
+    # BOOKED = 1 ⇒ renewed_flag = 1
+    if "booked" in df.columns and "renewed_flag" in df.columns:
+        mask = df["booked"] == 1
+        df.loc[mask, "renewed_flag"] = 1
+
 
     # 5. Save back to same source table
     df.to_sql(

@@ -1,67 +1,35 @@
+# ============================================================
+# 📦 Airflow ETL: Azure Blob → PostgreSQL (PEP8 + Flake8 Clean)
+# ============================================================
+
 import pandas as pd
 import re
-import json
-import base64
-from airflow import DAG
-from airflow.operators.python import PythonOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
-from airflow.models import Variable
-from datetime import datetime, timedelta
+from datetime import datetime
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 from time import sleep
-from cryptography.fernet import Fernet
+from pathlib import Path
+from schema_table_config import get_schema, get_log_tables, get_column_mapping
 
-# ✅ Config
-SOURCE_SCHEMA = "pip_stage"
-TARGET_SCHEMA = "pip_aggregation"
-LOG_SCHEMA = "pip_log"
+# ---------------------------------------------------------------------
+# 🔧 Constants
+# ---------------------------------------------------------------------
+DAGS_DIR = Path(__file__).resolve().parent
+JSON_PATH = str(DAGS_DIR / "config" / "schema_metadata_config.json")
+
+SOURCE_SCHEMA = get_schema("stage", JSON_PATH)
+TARGET_SCHEMA = get_schema("agg", JSON_PATH)
+LOG_SCHEMA = get_schema("log", JSON_PATH)
 POSTGRES_CONN_ID = "postgres_cloud_prochurn"
-META_DATA = "etl_metadata_logs"
+META_DATA = get_log_tables("metadata", JSON_PATH)
 
-COLUMN_MAPPING = {
-    "policy_no.": "policy_no",
-    "policy_number": "policy_no",
-    "net_tp_premium_/war&_srcc": "total_tp_premium",
-    "net_tp_premium_war_srcc": "total_tp_premium",
-    "net_od_premium": "total_od_premium",
-    "model_name": "model",
-    "manufacturer/make": "manufacturer",
-    "make_name": "manufacturer",
-    "variant": "model_variant",
-    "age": "vehicle_age",
-    "reg_no": "veh_reg_no",
-    "reg_no_": "veh_reg_no",
-    "chassis_number": "chassis_no",
-    "previous_year_ncb_%": "previous_year_ncb_percentage",
-    "previous_year_ncb_": "previous_year_ncb_percentage",
-    "ncb_%_previous_year": "previous_year_ncb_percentage",
-    "new_branch_name__2": "new_branch_name_2",
-    "system_channel": "new_vertical",
-    "engine_number": "engine_no",
-    "biztype": "business_type",
-    "sum_insured": "vehicle_idv",
-    "product_name__2": "product_name",
-    "product_name_2": "product_name",
-    "enginenumber": "engine_no",
-    "before_gst_add-on_gwp": "before_gst_add_on_gwp",
-    "current_year_ncb_amount": "ncb_amount",
-    "current_year_ncb_%": "applicable_discount_with_ncb",
-    "current_year_ncb_": "applicable_discount_with_ncb",
-    "add_on_cover_premium": "before_gst_add_on_gwp",
-    "state2": "state",
-    "rto_location_": "rto_location",
-    "office_name": "new_branch_name_2",
-    "total_sum_insured": "vehicle_idv",
-    "channel": "new_vertical",
-    "zone2": "zone",
-    "zone_2": "zone",
-    "tie_up": "tie_up",
-    "insured_name_": "insured_name",
-    "total_premium_payable_": "total_premium_payable"
-}
+COLUMN_JSON = str(DAGS_DIR / "config" / "column_mapping.json")
+COLUMN_MAPPING = get_column_mapping("base", COLUMN_JSON)
 
-    
+# ---------------------------------------------------------------------
+# 🗃️ Update metadata logs
+# ---------------------------------------------------------------------   
 
 def update_metadata(table_name, step, status=True, row_count=None, **context):
     
@@ -73,7 +41,7 @@ def update_metadata(table_name, step, status=True, row_count=None, **context):
             with engine.begin() as conn:
                 status_val = "YES" if status in [True, "YES", "1"] else "NO"
                 conn.execute(text(f"""
-                    INSERT INTO {LOG_SCHEMA}.{META_DATA} 
+                    INSERT INTO "{LOG_SCHEMA}"."{META_DATA}" 
                     (table_name, {step}, dwh_loaded_cnt_base, last_updated_ts)
                     VALUES (:table_name, :status, :row_count, :ts)
                     ON CONFLICT (table_name)
@@ -97,6 +65,9 @@ def update_metadata(table_name, step, status=True, row_count=None, **context):
 
     print(f"❌ Failed to update metadata for {table_name} after 3 retries.")
 
+# ---------------------------------------------------------------------
+# 🧹 Clean column names
+# ---------------------------------------------------------------------
 
 def clean_text(value):
     if pd.isna(value) or value is None:
@@ -106,13 +77,17 @@ def clean_text(value):
     value = re.sub(r"\s+", " ", value).strip().lower()
     return value.replace(" ", "")
 
+# ---------------------------------------------------------------------
+# get source table 
+# ---------------------------------------------------------------------
+
 def get_source_table():
     hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
     engine = hook.get_sqlalchemy_engine()
     with engine.begin() as conn:
         query = f"""
         SELECT table_name 
-        FROM {LOG_SCHEMA}.{META_DATA} 
+        FROM "{LOG_SCHEMA}"."{META_DATA}" 
         WHERE table_name ILIKE 'base_%'
         AND stage_loaded = 'YES'
         AND is_base_cleaned = 'NO'
@@ -124,6 +99,10 @@ def get_source_table():
         else:
             print(f"⚠️ No base tables found in {SOURCE_SCHEMA}, skipping base_clean and moving on.")
             return []
+        
+# ---------------------------------------------------------------------
+# Clean the base data and load into postgres aggregation layer
+# ---------------------------------------------------------------------
 
 def cleanse_and_load_base_tables(**context):
     
@@ -139,8 +118,8 @@ def cleanse_and_load_base_tables(**context):
     print(f"Found tables to process: {source_tables}")
 
     with engine.begin() as conn:
-        conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {TARGET_SCHEMA};"))
-        conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {LOG_SCHEMA};"))
+        conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{TARGET_SCHEMA}";'))
+        conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{LOG_SCHEMA}";'))
 
     for source_table in source_tables:
         try:
@@ -227,7 +206,7 @@ def cleanse_and_load_base_tables(**context):
 
                 # ✅ Write cleaned chunk to Cleaned schema using isolated connection
                 with engine.begin() as write_conn:
-                    df.to_sql(name=source_table, schema=TARGET_SCHEMA, con=write_conn, if_exists="append", index=False,chunksize=50000,method='multi')
+                    df.to_sql(name=source_table, schema=TARGET_SCHEMA, con=write_conn, if_exists="append", index=False, chunksize=50000, method='multi')
                     row_count = len(df)
             # 🧾 Log removed rows after all chunks using isolated connection
             if not removed_rows_all.empty:
@@ -240,7 +219,7 @@ def cleanse_and_load_base_tables(**context):
                 engine = hook.get_sqlalchemy_engine()
 
                 with engine.begin() as log_conn:
-                    removed_rows_all.to_sql(name=log_table, schema=LOG_SCHEMA, con=log_conn, if_exists="replace", index=False,chunksize = 2000)
+                    removed_rows_all.to_sql(name=log_table, schema=LOG_SCHEMA, con=log_conn, if_exists="replace", index=False, chunksize= 2000)
                 print(f"Removed rows logged in {LOG_SCHEMA}.{log_table}")
             
             print(f"✅ Loaded cleaned data into {TARGET_SCHEMA}.{source_table} with {row_count} rows")
