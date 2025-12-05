@@ -1,0 +1,67 @@
+{
+
+    "schemas":{
+        "stage":"pip_stage",
+        "agg":"pip_aggregation",
+        "bi_dwh":"pip_bi_dwh",
+        "log":"pip_log"
+    },
+
+    "logtables":{
+        "metadata":"base_pr_metalog",
+        "claimlog":"claim_elt_log",
+        "featurelog": "feature_eng_log"
+    },
+
+    "pip_log":{
+        "base_pr_metalog":{
+            "table_name":"TEXT PRIMARY KEY",
+            "table_rnk":"INTEGER",
+            "year": "INTEGER",
+            "stage_loaded": "TEXT DEFAULT 'NO'",
+            "stage_count": "BIGINT DEFAULT 0",
+            "is_base_cleaned": "TEXT DEFAULT 'NO'",
+            "dwh_loaded_cnt_base": "BIGINT DEFAULT 0",
+            "is_pr_cleaned": "TEXT DEFAULT 'NO'",
+            "dwh_loaded_cnt_pr": "BIGINT DEFAULT 0",
+            "is_basepr_appended": "TEXT DEFAULT 'NO'",
+            "basepr_count": "TEXT DEFAULT 'NO'",
+            "appended_table_name": "TEXT",
+            "renewal_policy_table": "TEXT",
+            "renewal_policy_count": "BIGINT DEFAULT 0",
+            "last_updated_ts": "TIMESTAMP DEFAULT NOW()"
+    
+        },
+
+        "claim_elt_log":{
+            "table_name": "TEXT PRIMARY KEY",
+            "table_rnk": "INTEGER",
+            "year": "INTEGER",
+            "stage_loaded": "TEXT DEFAULT 'NO'",
+            "stage_count": "BIGINT DEFAULT 0",
+            "is_appended": "TEXT DEFAULT 'NO'",
+            "appended_count": "INTEGER",
+            "is_merged": "TEXT DEFAULT 'NO'",
+            "merged_count": "INTEGER",
+            "is_basepr_claim_merged": "TEXT DEFAULT 'NO'",
+            "cnt": "INTEGER",
+            "last_updated_ts": "TIMESTAMP DEFAULT NOW()"
+        },
+
+        "feature_eng_log":{
+            "date": "DATE PRIMARY KEY",
+            "addons": "TEXT",
+            "count_of_addons": "BIGINT",
+            "new_col": "TEXT",
+            "count_of_new_col": "BIGINT",
+            "future_pred": "TEXT",
+            "count_of_future_pred": "BIGINT",
+            "renewed_policy_count": "BIGINT",
+            "non_renewed_policy_count": "BIGINT",
+            "segmentation": "TEXT",
+            "segmentation_count": "BIGINT",
+            "reason": "TEXT",
+            "reason_count": "BIGINT"
+        }
+    }
+}
