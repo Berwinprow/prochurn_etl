@@ -20,7 +20,7 @@ __pycache__/
 plugins/
 automation/
 backup/
-config/
+
 
 
 dockerfile
