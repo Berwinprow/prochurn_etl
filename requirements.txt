@@ -5,4 +5,7 @@ openpyxl
 pyxlsb
 fuzzywuzzy
 python-Levenshtein     
-cryptography  
+cryptography
+scikit-learn==1.5.2
+imbalanced-learn==0.13.0
+matplotlib  
