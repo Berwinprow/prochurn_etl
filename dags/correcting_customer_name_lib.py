@@ -253,20 +253,6 @@ with DAG(
         python_callable=clean_corrected_name_fuzzy,
         provide_context=True,
     )
-    trim_task = PythonOperator(
-        task_id="unwanted_column_removal",
-        python_callable=trim_columns,
-    )
+    
 
-    booked_task = PythonOperator(
-        task_id="booked_cases",
-        python_callable=update_booked_status,
-        provide_context=True,
-    )
-
-    policy_mapping_task = PythonOperator(
-        task_id="Mapping_Old_Policy",
-        python_callable=old_policy_mapping,
-    )
-
-    null_case_task >> furzzy_task >> trim_task >> booked_task >> policy_mapping_task
+    null_case_task >> furzzy_task 

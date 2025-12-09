@@ -450,33 +450,6 @@ with DAG(
         provide_context=True,
     )
 
-    null_case_task = PythonOperator(
-        task_id="null_case_handeling",
-        python_callable=corrected_name_null_cases,
-        provide_context=True,
-    )
-
-    furzzy_task = PythonOperator(
-        task_id="furzzy_match",
-        python_callable=clean_corrected_name_fuzzy,
-        provide_context=True,
-    )
-    trim_task = PythonOperator(
-        task_id="unwanted_column_removal",
-        python_callable=trim_columns,
-    )
-
-    booked_task = PythonOperator(
-        task_id="booked_cases",
-        python_callable=update_booked_status,
-        provide_context=True,
-    )
-
-    policy_mapping_task = PythonOperator(
-        task_id="Mapping_Old_Policy",
-        python_callable=old_policy_mapping,
-    )
-
 
     # ---------------------------------------------------------
     # DAG TASK ORDER (FINAL & CORRECT)
@@ -492,8 +465,8 @@ with DAG(
     clean_samechassis_table_task >> duplicate_cleaning_samechassis_task
 
     # Step 3
-    [duplicate_basic_cleaning_task, duplicate_cleaning_samechassis_task] >> final_task >> null_case_task >> furzzy_task >> trim_task >> booked_task >> policy_mapping_task
+    [duplicate_basic_cleaning_task, duplicate_cleaning_samechassis_task] >> final_task 
 
 
-    # duplicate_basic_cleaning_task >> final_task >> null_case_task >> furzzy_task_cus
+
 

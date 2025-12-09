@@ -295,30 +295,6 @@ with DAG(
         python_callable=add_policy_chain_features,
     )
 
-    t1 = PythonOperator(
-        task_id="convert_datatypes_and_reload",
-        python_callable=convert_and_reload
-    )
-    t2 = PythonOperator(
-    task_id="update_overall_churned",
-    python_callable=update_overall_churned
-)
 
-    t3 = PythonOperator(
-        task_id="update_renewal_rate_status",
-        python_callable=update_renewal_rate_status
-    )
-    pricing_catlog_task = PythonOperator(
-        task_id="pricing_catlog",
-        python_callable=pricing_catlog,
-        provide_context=True,
-    )
-
-    policy_feature_task = PythonOperator(
-        task_id="build_policy_features",
-        python_callable=build_policy_features,
-        provide_context=True,
-    )
-
-    anomali_task >> sql_task >> t1 >> t2 >> t3 >> pricing_catlog_task >> policy_feature_task
+    anomali_task >> sql_task 
      

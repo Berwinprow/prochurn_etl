@@ -188,3 +188,5 @@ with DAG(
         task_id="generate_top_3_reasons",
         python_callable=top_3_reason,
     )
+
+    task_top3

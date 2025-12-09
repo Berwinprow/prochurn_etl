@@ -477,4 +477,4 @@ with DAG(
         provide_context=True,
     )
 
-    pricing_catlog >> policy_feature_task
+    pricing_catlog_task >> policy_feature_task

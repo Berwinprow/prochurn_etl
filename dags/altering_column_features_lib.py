@@ -5,7 +5,7 @@ from datetime import datetime
 import time
 import pandas as pd
 from sqlalchemy import Integer, Float, DateTime, Text
-from creating_new_features_lib import pricing_catlog, build_policy_features
+
 
 
 POSTGRES_CONN_ID = "postgres_cloud_prochurn"
@@ -360,16 +360,6 @@ with DAG(
         task_id="update_renewal_rate_status",
         python_callable=update_renewal_rate_status
     )
-    pricing_catlog_task = PythonOperator(
-        task_id="pricing_catlog",
-        python_callable=pricing_catlog,
-        provide_context=True,
-    )
+  
 
-    policy_feature_task = PythonOperator(
-        task_id="build_policy_features",
-        python_callable=build_policy_features,
-        provide_context=True,
-    )
-
-    t1 >> t2 >> t3 >> pricing_catlog_task >> policy_feature_task
+    t1 >> t2 >> t3 

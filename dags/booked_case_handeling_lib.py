@@ -158,31 +158,31 @@ def update_booked_status():
     print(f"number of rows inserted into {SOURCE_SCHEMA}.{TARGET_TABLE_2} is : {row_cnt}")
     print(f"✅ booked status updated table created on{SOURCE_SCHEMA}.{TARGET_TABLE_2}")
 
-# default_args = {
-#     "owner": "airflow",
-#     "depends_on_past": False,
-#     "start_date": datetime(2024, 11, 1),
-#     "retries": 1,
-#     "retry_delay": timedelta(minutes=3),
-# }
+default_args = {
+    "owner": "airflow",
+    "depends_on_past": False,
+    "start_date": datetime(2024, 11, 1),
+    "retries": 1,
+    "retry_delay": timedelta(minutes=3),
+}
 
-# with DAG(
-#     dag_id="booked_cases_handling",
-#     default_args=default_args,
-#     schedule_interval=None,
-#     catchup=False,
-#     tags=["booked", "liberty"],
-# ) as dag:
+with DAG(
+    dag_id="booked_cases_handling",
+    default_args=default_args,
+    schedule_interval=None,
+    catchup=False,
+    tags=["booked", "liberty"],
+) as dag:
 
-#     trim_task = PythonOperator(
-#         task_id="unwanted_column_removal",
-#         python_callable=trim_columns,
-#     )
+    trim_task = PythonOperator(
+        task_id="unwanted_column_removal",
+        python_callable=trim_columns,
+    )
 
-#     booked_task = PythonOperator(
-#         task_id="booked_cases",
-#         python_callable=update_booked_status,
-#         provide_context=True,
-#     )
+    booked_task = PythonOperator(
+        task_id="booked_cases",
+        python_callable=update_booked_status,
+        provide_context=True,
+    )
   
-#     trim_task >> booked_task 
+    trim_task >> booked_task 

@@ -3,7 +3,7 @@
     "schemas":{
         "stage":"pip_stage",
         "agg":"test_aggregation",
-        "bi_dwh":"pip_bi_dwh",
+        "bi_dwh":"test_bi_dwh",
         "log":"pip_log"
     },
 
