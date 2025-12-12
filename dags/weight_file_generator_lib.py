@@ -23,6 +23,7 @@ from schema_table_config import get_log_tables, get_schema
 
 DAGS_DIR = Path(__file__).resolve().parent
 WEIGHTS_DIR = DAGS_DIR / "weights"
+META_JSON = str(DAGS_DIR / "config" / "schema_metadata_config.json")
 WEIGHTS_DIR.mkdir(exist_ok=True)   # Create folder if not exists
 
 # Path to save files

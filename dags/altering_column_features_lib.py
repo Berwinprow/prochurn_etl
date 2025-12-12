@@ -232,7 +232,6 @@ def convert_and_reload():
 
 def update_overall_churned():
     
-    
     hook = PostgresHook(postgres_conn_id="postgres_cloud_prochurn")
     conn = hook.get_conn()
     cur = conn.cursor()
