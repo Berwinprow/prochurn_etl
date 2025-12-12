@@ -2,10 +2,18 @@ pandas
 sqlalchemy
 psycopg2-binary
 openpyxl
+numpy
 pyxlsb
 fuzzywuzzy
 python-Levenshtein     
 cryptography
+joblib
+
+
+# ML / Stats libs
+
 scikit-learn==1.5.2
-imbalanced-learn==0.13.0
-matplotlib  
+imbalanced-learn==0.12.4
+matplotlib==3.7.2
+seaborn==0.13.2
+

@@ -231,7 +231,7 @@ def convert_and_reload():
     step_log("write to Postgres", write_back)
 
 def update_overall_churned():
-    from airflow.providers.postgres.hooks.postgres import PostgresHook
+    
     
     hook = PostgresHook(postgres_conn_id="postgres_cloud_prochurn")
     conn = hook.get_conn()
@@ -269,7 +269,7 @@ def update_overall_churned():
     print("✅ Completed: overall churned update\n")
 
 def update_renewal_rate_status():
-    from airflow.providers.postgres.hooks.postgres import PostgresHook
+    
     
     hook = PostgresHook(postgres_conn_id="postgres_cloud_prochurn")
     conn = hook.get_conn()
@@ -352,9 +352,9 @@ with DAG(
         python_callable=convert_and_reload
     )
     t2 = PythonOperator(
-    task_id="update_overall_churned",
-    python_callable=update_overall_churned
-)
+        task_id="update_overall_churned",
+        python_callable=update_overall_churned
+    )
 
     t3 = PythonOperator(
         task_id="update_renewal_rate_status",

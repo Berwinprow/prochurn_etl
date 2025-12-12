@@ -18,6 +18,7 @@ from sqlalchemy import text
 import joblib
 import re
 from pathlib import Path
+from schema_table_config import get_log_tables, get_schema
 
 
 DAGS_DIR = Path(__file__).resolve().parent
@@ -30,7 +31,7 @@ label_file_path = WEIGHTS_DIR / "label_encoders_gbm.pkl"
 feature_file_path = WEIGHTS_DIR / "model_features_gbm.pkl"
 
 POSTGRES_CONN_ID = "postgres_cloud_prochurn"
-SOURCE_SCHEMA = "test_aggregation"
+SOURCE_SCHEMA = get_schema("agg", META_JSON)
 SOURCE_TABLE = "policydata_with_fb_cc_pc_newfea_opti_correct"
 
 

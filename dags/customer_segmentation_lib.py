@@ -9,7 +9,7 @@ import pandas as pd
 # ----------------------------------------------------------
 SOURCE_TABLE_1 = "gbm1_predictions_jfmamj_final_top3_reasons"
 
-TARGET_TABLE = "GBM1_predictions_jasond_final_reason_segment"
+TARGET_TABLE = "gbm1_predictions_jasond_final_reason_segment_806050_ch"
 
 SOURCE_SCHEMA = "test_bi_dwh"
 TARGET_SCHEMA = "test_bi_dwh"
@@ -78,7 +78,7 @@ def cus_segmentation():
     low_clv_threshold = data['clv'].quantile(0.25)
 
     high_churn_probability_threshold = 0.80
-    mid_churn_probability_threshold = 0.65
+    mid_churn_probability_threshold = 0.60
     low_churn_probability_threshold = 0.50
 
     # Assign CLV, Payment, Discount, and Churn categories
@@ -96,15 +96,15 @@ def cus_segmentation():
     def segment_policy(row):
         if row['predicted_status'] == 'Not Renewed':  # Process only those who have at least one Not Renewed policy
             if row['churn_category'] == 'Mid' and row['discount_category'] in ['Mid', 'Low'] and row['clv_category'] in ['High', 'Mid']:
-                return 'Elite Retainers'
+                return 'Platinum'
             elif row['churn_category'] == 'Low' and row['discount_category'] in ['Mid', 'Low'] and row['clv_category'] in ['High', 'Mid']:
-                return 'Low Value Customers'
+                return 'Gold'
             elif row['churn_category'] == 'Mid' and row['discount_category'] in ['High', 'Mid', 'Low'] and row['clv_category'] in ['High', 'Mid', 'Low']:
-                return 'Potential Customers'
+                return 'Gold'
             elif row['churn_category'] == 'Low' and row['discount_category'] in ['High', 'Mid', 'Low'] and row['clv_category'] in ['High', 'Mid', 'Low']:
-                return 'Potential Customers'
+                return 'Gold'
             elif row['churn_category'] == 'High' and row['discount_category'] in ['High', 'Mid', 'Low'] and row['clv_category'] in ['High', 'Mid', 'Low']:
-                return 'Low Value Customers'
+                return 'Sliver'
         return None
 
     # Apply the segmentation function
