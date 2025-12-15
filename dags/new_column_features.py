@@ -8,13 +8,18 @@ from datetime import datetime
 import re
 from sqlalchemy.exc import PendingRollbackError, OperationalError
 import time, gc
+from pathlib import Path
+from schema_table_config import get_column_mapping, get_log_tables, get_schema
+
+DAGS_DIR = Path(__file__).resolve().parent
+JSON_PATH = str(DAGS_DIR / "config" / "schema_metadata_config.json")
 
 POSTGRES_CONN_ID = "postgres_cloud_prochurn"
-TARGET_SCHEMA = "pip_bi_dwh"
+TARGET_SCHEMA = get_schema("bi_dwh", JSON_PATH)
 TARGET_TABLE = "final_policy_features"
-SOURCE_SCHEMA = "pip_aggregation"
-LOG_SCHEMA = "pip_log" 
-FEATURE_LOG = "feature_eng_log"
+SOURCE_SCHEMA = get_schema("agg", JSON_PATH)
+LOG_SCHEMA = get_schema("log", JSON_PATH)
+FEATURE_LOG = get_log_tables("featurelog", JSON_PATH)
 
 
 def get_latest_addons_table(engine):
@@ -32,6 +37,71 @@ def get_latest_addons_table(engine):
         print(f"no table found in {FEATURE_LOG}")
         return None
 
+def update_renewal_rate_status(SCHEMA,TABLE):    
+    hook = PostgresHook(postgres_conn_id="postgres_cloud_prochurn")
+    conn = hook.get_conn()
+    cur = conn.cursor()
+
+    print("\n🚀 Running renewal rate status update...")
+
+    sql = f"""
+
+    ALTER TABLE {SCHEMA}.{TABLE}
+    ADD COLUMN IF NOT EXISTS renewal_rate_status TEXT;
+
+    DROP TABLE IF EXISTS temp_renewal_rate;
+    CREATE TEMP TABLE temp_renewal_rate AS
+    SELECT
+        cleaned_chassis_no,
+        cleaned_engine_no,
+        corrected_name,
+        policy_start_date,
+        CASE 
+            WHEN LAG(policy_end_date) OVER (
+                PARTITION BY cleaned_chassis_no, cleaned_engine_no, corrected_name
+                ORDER BY policy_start_date
+            ) IS NULL THEN 'Null'
+
+            WHEN policy_start_date <
+                 LAG(policy_end_date) OVER (
+                     PARTITION BY cleaned_chassis_no, cleaned_engine_no, corrected_name
+                     ORDER BY policy_start_date
+                 ) + INTERVAL '1 day' THEN 'Null'
+
+            ELSE CASE
+                WHEN ROUND(total_premium_payable::numeric,0) >
+                     LAG(ROUND(total_premium_payable::numeric,0)) OVER (
+                         PARTITION BY cleaned_chassis_no, cleaned_engine_no, corrected_name
+                         ORDER BY policy_start_date
+                     )
+                THEN 'Increase'
+
+                WHEN ROUND(total_premium_payable::numeric,0) <
+                     LAG(ROUND(total_premium_payable::numeric,0)) OVER (
+                         PARTITION BY cleaned_chassis_no, cleaned_engine_no, corrected_name
+                         ORDER BY policy_start_date
+                     )
+                THEN 'Decrease'
+
+                ELSE 'No Change'
+            END
+        END AS renewal_status
+    FROM {SCHEMA}.{TABLE};
+
+    UPDATE {SCHEMA}.{TABLE} t
+    SET renewal_rate_status = tmp.renewal_status
+    FROM temp_renewal_rate tmp
+    WHERE t.cleaned_chassis_no = tmp.cleaned_chassis_no
+      AND t.cleaned_engine_no = tmp.cleaned_engine_no
+      AND t.corrected_name = tmp.corrected_name
+      AND t.policy_start_date = tmp.policy_start_date;
+    """
+
+    cur.execute(sql)
+    conn.commit()
+    cur.close()
+
+    print("✅ Completed: renewal rate status update\n")
 
 def update_feature_log_newcol(engine, target_table, count_val):
     
@@ -126,25 +196,7 @@ def build_policy_features():
         # Map back to main df
         df['overall_churned'] = df['customer_id'].map(churn_map)
 
-    # 5. renewal_rate_status (lag + premium compare + gap)
-    
-    if {'cleaned_chassis_no', 'cleaned_engine_no', 'corrected_name',
-    'policy_start_date', 'policy_end_date', 'total_premium_payable'}.issubset(df.columns):
-
-        df = df.sort_values(by=['cleaned_chassis_no', 'cleaned_engine_no', 'corrected_name', 'policy_start_date'])
-        gtmp = df.groupby(['cleaned_chassis_no', 'cleaned_engine_no', 'corrected_name'])
-
-        prev_end = gtmp['policy_end_date'].shift()
-        prev_premium = gtmp['total_premium_payable'].shift().round(0)
-        curr_premium = df['total_premium_payable'].round(0)
-        valid_gap = df['policy_start_date'] >= (prev_end + pd.Timedelta(days=1))
-
-        df['renewal_rate_status'] = 'Null'
-        df.loc[valid_gap & (curr_premium > prev_premium), 'renewal_rate_status'] = 'Increase'
-        df.loc[valid_gap & (curr_premium < prev_premium), 'renewal_rate_status'] = 'Decrease'
-        df.loc[valid_gap & (curr_premium == prev_premium), 'renewal_rate_status'] = 'No Change'
-
-
+   
     # ========== END: New Columns (Inserted Mid-Script) ==========
         print("new column adding done")
 
@@ -168,7 +220,7 @@ def build_policy_features():
     df = df.sort_values(group_cols + ['policy_start_date', 'policy_end_date'])
 
     # Renewal flag & active indicator
-    df['renewal_flag_binary'] = df['policy_status'].map({'Renewed': 1, 'Not Renewed': 0})
+    df['renewal_flag_binary'] = df['policy_status'].map({'Renewed': 1, 'Not Renewed': 0,'Open': 0})
     df['is_active']    = df['policy_status'].eq('Open')
 
     g = df.groupby(group_cols)
@@ -408,6 +460,7 @@ def build_policy_features():
 
         row_count = len(df)
         update_feature_log_newcol(fresh_engine, TARGET_TABLE, row_count)
+        update_renewal_rate_status(TARGET_SCHEMA, TARGET_TABLE)
         print(f"✅ Feature log updated: new_col = {TARGET_TABLE}, count = {row_count}")
 
     except (PendingRollbackError, OperationalError) as e:

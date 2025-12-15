@@ -72,6 +72,8 @@ def normalize_table_name(file_name: str, sheet_name: str = "Sheet1"):
     if len(year) == 2:
         year = '20' + year
 
+    
+
     if 'base' in name:
         return f'base_{year}'
     if 'pr' in name:
@@ -153,6 +155,7 @@ def process_file_bytes_to_postgres(file_bytes, file_name, engine, schema_name):
         for sheet_name, df in df_dict.items():
             table_name = normalize_table_name(file_name, sheet_name)
             df = clean_column_names(df)
+            df["last_runned_date"] = datetime.now()
 
             if df.empty:
                 logging.warning(f"Skipping empty '{sheet_name}' in '{file_name}'.")

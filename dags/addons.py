@@ -84,25 +84,78 @@ def addon_column():
 
     # 3. Apply zone mapping
     # zone_map_df = json.loads(Variable.get(ZONE_TABLE))
-    df['Zone'] = df.apply(
-        lambda row: ZONE_TABLE.get(str(row['state']).upper(), row['Zone'])
-        if pd.isna(row['Zone']) else row['Zone'],
+    df['zone'] = df.apply(
+        lambda row: ZONE_TABLE.get(str(row['state']).upper(), row['zone'])
+        if pd.isna(row['zone']) else row['zone'],
         axis=1
     )
     print(f"✅ Applied zone mapping from {ZONE_TABLE}")
 
-    # 4. Drop null corrected_name
     if 'corrected_name' in df.columns:
-        removed_count = df["corrected_name"].isna().sum()
-        print(f"⚠️ Removed {removed_count} rows with null corrected_name")
-        df = df[df["corrected_name"].notna()]
-    else:
-        print("❗ 'corrected_name' column not found in DataFrame")
+        removed = df[
+            (df["corrected_name"].isna()) |
+            (df["corrected_name"].astype(str).str.strip() == "")
+        ].copy()
+
+        df = df[
+            (df["corrected_name"].notna()) &
+            (df["corrected_name"].astype(str).str.strip() != "")
+        ]
+
+        print(f"⚠️ Removed {len(removed)} rows with null or blank corrected_name")
+
     
-    # BOOKED = 1 ⇒ renewed_flag = 1
-    if "booked" in df.columns and "renewed_flag" in df.columns:
-        mask = df["booked"] == 1
-        df.loc[mask, "renewed_flag"] = 1
+    # ✅ Vehicle Age Cleaning: blank → 0, datatype → int
+    if "vehicle_age" in df.columns:
+        df["vehicle_age"] = df["vehicle_age"].replace("(blank)", None)
+        df["vehicle_age"] = pd.to_numeric(df["vehicle_age"], errors="coerce")
+        df["vehicle_age"] = df["vehicle_age"].round().astype(float)
+    print("vechicle age cleaning done")
+
+    # ✅ applicable_discount_with_ncb Cleaning: blank → 0, datatype → int
+    if "applicable_discount_with_ncb" in df.columns:
+        df["applicable_discount_with_ncb"] = df["applicable_discount_with_ncb"].replace("(blank)", None)
+        df["applicable_discount_with_ncb"] = pd.to_numeric(
+            df["applicable_discount_with_ncb"], errors="coerce"
+        )
+        df["applicable_discount_with_ncb"] = df["applicable_discount_with_ncb"].fillna(0)
+        df["applicable_discount_with_ncb"] = df["applicable_discount_with_ncb"].round()
+        df["applicable_discount_with_ncb"] = df["applicable_discount_with_ncb"].astype(float)
+
+    print("applicable_discount_with_ncb cleaning done")
+
+    if "vehicle_idv" in df.columns:
+        df["vehicle_idv"] = df["vehicle_idv"].replace("(blank)", None)
+        df["vehicle_idv"] = pd.to_numeric(df["vehicle_idv"], errors="coerce")
+        df["vehicle_idv"] = df["vehicle_idv"].fillna(0)
+        df["vehicle_idv"] = df["vehicle_idv"].round().astype(float)
+
+    print("vehicle_idv cleaning completed")
+
+    # ✅ previous_year_ncb_percentage Cleaning: blank → 0, datatype → int
+    if "previous_year_ncb_percentage" in df.columns:
+        df["previous_year_ncb_percentage"] = df["previous_year_ncb_percentage"].replace("(blank)", None)
+        df["previous_year_ncb_percentage"] = pd.to_numeric(
+            df["previous_year_ncb_percentage"], errors="coerce"
+        )
+        df["previous_year_ncb_percentage"] = df["previous_year_ncb_percentage"].fillna(0)
+        df["previous_year_ncb_percentage"] = df["previous_year_ncb_percentage"].round().astype(float)
+
+    print("previous_year_ncb_percentage cleaning completed")
+
+    if "tie_up" in df.columns:
+        df["tie_up"] = df["tie_up"].fillna("Non-OEM")
+    print("tie_up cleaning completed")
+
+    if "fuel_type" in df.columns:
+        df["fuel_type"] = df["fuel_type"].replace(['-', '(blank)'], pd.NA)
+        df["fuel_type"] = df["fuel_type"].fillna("Petrol")
+    print("fuel_type cleaning completed")
+    
+    # # BOOKED = 1 ⇒ renewed_flag = 1
+    # if "booked" in df.columns and "renewed_flag" in df.columns:
+    #     mask = df["booked"] == 1
+    #     df.loc[mask, "renewed_flag"] = 1
 
 
     # 5. Save back to same source table
@@ -113,9 +166,9 @@ def addon_column():
         if_exists="replace",
         index=False,
         chunksize=BATCH_SIZE,
-        dtype={"Zone": String}
+        dtype={"zone": String}
     )
-    print(f"✅ Zone mapping completed — {df['Zone'].isna().sum()} nulls remaining")
+    print(f"✅ zone mapping completed — {df['zone'].isna().sum()} nulls remaining")
 
     # 6. Update feature engineering log with row count + target table name
     row_count = len(df)

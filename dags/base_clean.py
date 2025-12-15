@@ -31,7 +31,7 @@ COLUMN_MAPPING = get_column_mapping("base", COLUMN_JSON)
 # 🗃️ Update metadata logs
 # ---------------------------------------------------------------------   
 
-def update_metadata(table_name, step, status=True, row_count=None, **context):
+def update_metadata(table_name, step, status=True, row_count=None,removed_count=None, **context):
     
 
     for attempt in range(3):  # retry up to 3 times
@@ -42,16 +42,18 @@ def update_metadata(table_name, step, status=True, row_count=None, **context):
                 status_val = "YES" if status in [True, "YES", "1"] else "NO"
                 conn.execute(text(f"""
                     INSERT INTO "{LOG_SCHEMA}"."{META_DATA}" 
-                    (table_name, {step}, dwh_loaded_cnt_base, last_updated_ts)
-                    VALUES (:table_name, :status, :row_count, :ts)
+                    (table_name, {step}, base_cnt,base_removed_cnt, last_updated_ts)
+                    VALUES (:table_name, :status, :row_count,:removed_cnt, :ts)
                     ON CONFLICT (table_name)
                     DO UPDATE SET {step} = :status,
-                                  dwh_loaded_cnt_base = :row_count,
+                                  base_cnt = :row_count,
+                                  base_removed_cnt = :removed_cnt,
                                   last_updated_ts = :ts
                 """), {
                     "table_name": table_name,
                     "status": status_val,
                     "row_count": row_count if row_count is not None else 0,
+                    "removed_count": removed_count if removed_count is not None else 0,
                     "ts": datetime.utcnow()
                 })
             engine.dispose()
@@ -75,7 +77,8 @@ def clean_text(value):
     value = str(value).strip()
     value = re.sub(r"[^A-Za-z0-9\s]", "", value)
     value = re.sub(r"\s+", " ", value).strip().lower()
-    return value.replace(" ", "")
+    value = value.replace(" ", "")
+    return value if value != "" else None
 
 # ---------------------------------------------------------------------
 # get source table 
@@ -149,6 +152,7 @@ def cleanse_and_load_base_tables(**context):
                 unmapped_columns = original_columns - mapped_columns
 
                 df.rename(columns=normalized_mapping, inplace=True)
+                
                 # Find mapped columns
                 mapped_columns = set(original_columns).intersection(COLUMN_MAPPING.keys())
                 updated_columns = {col: COLUMN_MAPPING[col] for col in mapped_columns if col in COLUMN_MAPPING}
@@ -203,7 +207,7 @@ def cleanse_and_load_base_tables(**context):
                     df = df.sort_values("total_premium_payable", ascending=False).drop_duplicates(subset=["policy_no"])
 
                 removed_rows_all = pd.concat([removed_rows_all, removed_rows])
-
+                df["cleaned_timestamp"] = datetime.now()
                 # ✅ Write cleaned chunk to Cleaned schema using isolated connection
                 with engine.begin() as write_conn:
                     df.to_sql(name=source_table, schema=TARGET_SCHEMA, con=write_conn, if_exists="append", index=False, chunksize=50000, method='multi')
@@ -222,13 +226,26 @@ def cleanse_and_load_base_tables(**context):
                     removed_rows_all.to_sql(name=log_table, schema=LOG_SCHEMA, con=log_conn, if_exists="replace", index=False, chunksize= 2000)
                 print(f"Removed rows logged in {LOG_SCHEMA}.{log_table}")
             
-            print(f"✅ Loaded cleaned data into {TARGET_SCHEMA}.{source_table} with {row_count} rows")
+            clean_cnt = row_count
+            removed_cnt = len(removed_rows_all)
+
+            print(f"✅ Loaded cleaned data into {TARGET_SCHEMA}.{source_table}")
+            print(f"   ➤ Clean rows: {clean_cnt}")
+            print(f"   ➤ Removed rows: {removed_cnt}")
+
             # 🔁 Refresh connection before metadata update
             engine.dispose()
             sleep(2)
             hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
             engine = hook.get_sqlalchemy_engine()
-            update_metadata(source_table, "is_base_cleaned", True, row_count=row_count)
+            update_metadata(
+                source_table,
+                "is_base_cleaned",
+                True,
+                row_count=clean_cnt,
+                removed_count=removed_cnt
+            )
+
         except Exception as e:
             print(f"❌ Failed to process {source_table}: {e}")
             continue

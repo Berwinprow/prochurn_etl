@@ -62,8 +62,9 @@ def clean_text(value):
     value = re.sub(r"[^A-Za-z0-9\s]", "", value)  # Remove non-alphanumeric characters
     value = re.sub(r"\s+", " ", value).strip()  # Remove multiple spaces
     value = value.lower()
+    value = value.replace(" ", "")
 
-    return value.replace(" ", "")  # Remove all spaces for insured_name
+    return value if value != "" else None  # Remove all spaces for insured_name
 # ---------------------------------------------------------------------
 # 🧹 Clean Policy Numbers
 # ---------------------------------------------------------------------
@@ -98,7 +99,7 @@ def load_pr_table():
 # ---------------------------------------------------------------------
 # 🧹 Update the Log in Meta Table
 # ---------------------------------------------------------------------    
-def update_metadata(table_name, step, status="NO", row_count=None, **context):
+def update_metadata(table_name, step, status="NO", pr_cnt=None, pr_removed_cnt=None, **context):
     pg_hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
     engine = pg_hook.get_sqlalchemy_engine()
     with engine.begin() as conn:
@@ -106,19 +107,23 @@ def update_metadata(table_name, step, status="NO", row_count=None, **context):
         status_val = "YES" if status in [True, "YES", "1"] else "NO"
         
         conn.execute(text(f"""
-            INSERT INTO "{LOG_SCHEMA}"."{META_TABLE}" 
-                (table_name, {step}, dwh_loaded_cnt_pr, last_updated_ts)
-            VALUES (:table_name, :status, :row_count, :ts)
+            INSERT INTO "{LOG_SCHEMA}"."{META_TABLE}"
+                (table_name, {step}, pr_cnt, pr_removed_cnt, last_updated_ts)
+            VALUES (:table_name, :status, :pr_cnt, :pr_removed_cnt, :ts)
             ON CONFLICT (table_name)
-            DO UPDATE SET {step} = :status,
-                          dwh_loaded_cnt_pr = :row_count,
-                          last_updated_ts = :ts
+            DO UPDATE SET
+                {step} = :status,
+                pr_cnt = :pr_cnt,
+                pr_removed_cnt = :pr_removed_cnt,
+                last_updated_ts = :ts
         """), {
             "table_name": table_name,
-            "status": status_val,
-            "row_count": row_count if row_count is not None else 0,
+            "status": "YES" if status in [True, "YES", "1"] else "NO",
+            "pr_cnt": pr_cnt if pr_cnt is not None else 0,
+            "pr_removed_cnt": pr_removed_cnt if pr_removed_cnt is not None else 0,
             "ts": datetime.utcnow()
         })
+
 
 # ---------------------------------------------------------------------
 # 🧹clean and load the pr tables into aggregation Layer
@@ -262,16 +267,26 @@ def clean_and_load_pr_data():
             log_table = f"removed_{source_table}"
             removed_data.to_sql(name=log_table, schema=LOG_SCHEMA, con=engine, if_exists="replace", index=False)
             print(f"⚠️ Removed rows logged into `{LOG_SCHEMA}.{log_table}` with timestamp `{pipeline_run_time}`.")
-
+            
+        df["cleaned_timestamp"] = datetime.utcnow()
         # ✅ Step 8: Load cleaned data into `bi_dwh`
         target_table = f"{source_table}"
         df.to_sql(name=target_table, schema=TARGET_SCHEMA, con=engine, if_exists="replace", index=False, dtype={POLICY_NUMBER_COLUMN: String})
         row_count = len(df)
 
         print(f"✅ Data successfully loaded into `{TARGET_SCHEMA}.{target_table}` with {row_count} rows.")
+        clean_cnt = len(df)
+        removed_cnt = len(removed_data)
 
         # update metadata with row count
-        update_metadata(source_table, "is_pr_cleaned", "YES", row_count=row_count)
+        update_metadata(
+            table_name=source_table,
+            step="is_pr_cleaned",
+            status="YES",
+            pr_cnt=clean_cnt,
+            pr_removed_cnt=removed_cnt
+        )
+
 
         print(f"data successfully updated to {META_TABLE}")
 

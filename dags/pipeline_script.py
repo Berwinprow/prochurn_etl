@@ -13,18 +13,18 @@ from pathlib import Path
 from load_data_to_postgres_stage import load_data_to_postgres_stage
 from base_clean import cleanse_and_load_base_tables
 from clean_pr import clean_and_load_pr_data
+from baseprappend_inital import append_base_pr_initial
 from Furzzy_match import fuzzy_matching
 from claim_load_append_merge import append_claim_table , merge_claim_table , merge_basepr_with_claim
-from addonsflake import addon_column
+from addons import addon_column
 from new_column_features import build_policy_features
-from baseprappend_inital import append_base_pr_initial
 from base_pr_append import run_all_iterations
 from schema_table_config import ensure_all_schemas,get_logtable_details_from_json
 
 
 postgres_conn_id = "postgres_cloud_prochurn"
 DAG_DIR = Path(__file__).resolve().parent
-json_path = str(DAG_DIR/"config"/"log_script.json")
+json_path = str(DAG_DIR/"config"/"schema_metadata_config.json")
 # ---------------------------------------------------------------------
 # ✅ Custom Failure Email Callback (Gmail-based)
 # ---------------------------------------------------------------------
@@ -119,6 +119,10 @@ with DAG(
         task_id='Create_all_schemas',
         python_callable=ensure_all_schemas,
         provide_context=True,
+        op_kwargs={
+                "conn_id": postgres_conn_id,
+                "json_path": json_path,
+            },
     )
     create_log_tables = PythonOperator(
         task_id= "create_log_schema",
@@ -146,45 +150,51 @@ with DAG(
         provide_context=True,
     )
 
-    # ---------------- Stage 4 ----------------
-    append_basepr = PythonOperator(
+    append_basepr_initial = PythonOperator(
         task_id="base_pr_data_appending",
-        python_callable=run_all_iterations,
+        python_callable=append_base_pr_initial,
         provide_context=True,
     )
 
-    # ---------------- Stage 5 (Optional) ----------------
-    fuzzy_match = PythonOperator(
-        task_id="adding_fuzzy_matching_for_basepr_append",
-        python_callable=fuzzy_matching,
-        provide_context=True,
-    )
-    append_claim = PythonOperator(
-        task_id = "append_claim",
-        python_callable = append_claim_table
-    )
+    # # ---------------- Stage 4 ----------------
+    # append_basepr = PythonOperator(
+    #     task_id="base_pr_data_appending",
+    #     python_callable=run_all_iterations,
+    #     provide_context=True,
+    # )
 
-    merge_claim = PythonOperator(
-        task_id = "mergeclaim",
-        python_callable = merge_claim_table
-    )
+    # # ---------------- Stage 5 (Optional) ----------------
+    # fuzzy_match = PythonOperator(
+    #     task_id="adding_fuzzy_matching_for_basepr_append",
+    #     python_callable=fuzzy_matching,
+    #     provide_context=True,
+    # )
+    # append_claim = PythonOperator(
+    #     task_id = "append_claim",
+    #     python_callable = append_claim_table
+    # )
 
-    merge_baseprclaim = PythonOperator(
-        task_id = "mergebaseprwithclaim",
-        python_callable = merge_basepr_with_claim
-    )
-    add_on = PythonOperator(
-        task_id="add_on",
-        python_callable=addon_column,
-        provide_context=True,
-    )
+    # merge_claim = PythonOperator(
+    #     task_id = "mergeclaim",
+    #     python_callable = merge_claim_table
+    # )
+
+    # merge_baseprclaim = PythonOperator(
+    #     task_id = "mergebaseprwithclaim",
+    #     python_callable = merge_basepr_with_claim
+    # )
+    # add_on = PythonOperator(
+    #     task_id="add_on",
+    #     python_callable=addon_column,
+    #     provide_context=True,
+    # )
 
 
-    new_column_features = PythonOperator(
-        task_id="new_column_features",
-        python_callable=build_policy_features,
-        provide_context=True,
-    )
+    # new_column_features = PythonOperator(
+    #     task_id="new_column_features",
+    #     python_callable=build_policy_features,
+    #     provide_context=True,
+    # )
 
       # ---------------- EMAIL ALERT ON FAILURE ----------------
     # send_failure_email = EmailOperator(
@@ -216,17 +226,9 @@ with DAG(
     )
 
     # ---------------- DAG Flow ----------------
-    # start >> [clean_base_data, clean_pr_data]
-    # [clean_base_data, clean_pr_data] >> append_basepr >> fuzzy_match >> new_column_features 
-    # new_column_features >> [send_failure_email, end]
-    # send_failure_email >> end
+    
 
-    start >> create_Schema >> create_log_tables >> load_initial_data >> append_claim >> [clean_base_data, clean_pr_data, merge_claim ] >> append_basepr >> fuzzy_match >> merge_baseprclaim >> add_on >> new_column_features >> end
-    # new_column_features >> [send_failure_email] >> end
-    # [send_failure_email] >> end 
-
-    # start >> append_claim >> merge_claim >>append_basepr >>  fuzzy_match >> merge_baseprclaim >> add_on >> new_column_features 
-    # new_column_features >> [send_failure_email >> end]
-    # send_failure_email >> end
+    start >> create_Schema >> create_log_tables >> load_initial_data >> [clean_base_data , clean_pr_data ] >> append_basepr_initial >> end
+    
 
 

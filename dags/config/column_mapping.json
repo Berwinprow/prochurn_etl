@@ -6,6 +6,7 @@
         "net_tp_premium_war_srcc": "total_tp_premium",
         "net_od_premium": "total_od_premium",
         "model_name": "model",
+        "model": "model",
         "manufacturer/make": "manufacturer",
         "make_name": "manufacturer",
         "variant": "model_variant",
@@ -46,6 +47,7 @@
         "net_tp_premium_/_war_&_srcc": "total_tp_premium",
         "net_od_premium": "total_od_premium",
         "model_name": "model",
+        "model":"model",
         "manufacturer/make": "manufacturer",
         "make_name": "manufacturer",
         "variant": "model_variant",
@@ -69,7 +71,8 @@
         "office_name":"office_name",
         "total_sum_insured":"vehicle_idv",
         "channel":"new_vertical",
-        "detariff_disc_rate":"applicable_discount_with_ncb"
+        "detariff_disc_rate":"applicable_discount_with_ncb",
+        "pc_segment_type":"vehicle_segment "
 
     },
     "zonemapping":{

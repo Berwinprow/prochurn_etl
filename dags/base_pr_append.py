@@ -132,21 +132,25 @@ def convert_month_format(value):
 # Updating meta log
 # --------------------------------------------------------------------- 
    
-def update_metadata(engine, src_table, target_table, row_count=None):
+def update_metadata(engine, src_table, target_table, row_count=None, removed_count=None):
     with engine.begin() as conn:
         conn.execute(text(f"""
             UPDATE "{log_schema}"."{META_TABLE}"
-            SET is_basepr_appended = 'YES',
+            SET 
+                is_basepr_appended = 'YES',
                 appended_table_name = :target,
-                basepr_count = :row_count,
+                basepr_appended_count = :row_count,
+                basepr_removed_count = :removed_count,
                 last_updated_ts = :ts
             WHERE table_name = :src
         """), {
             "src": src_table,
             "target": target_table,
             "row_count": row_count if row_count is not None else 0,
+            "removed_count": removed_count if removed_count is not None else 0,
             "ts": datetime.utcnow()
         })
+
 
 # ---------------------------------------------------------------------
 # Getting Base Pr Table 
@@ -241,10 +245,10 @@ def append_base_pr(base_table,pr_table,target_table,engine):
         df_pr["tie_up"] = None  # Or ""
 
      # ✅ Ensure `tie_up` column exists in both tables before appending
-    if "Zone" not in df_base.columns:
+    if "zone" not in df_base.columns:
         df_base["Zone"] = None  # Or ""
 
-    if "Zone" not in df_pr.columns:
+    if "zone" not in df_pr.columns:
         df_pr["Zone"] = None
     
     if "vehicle_segment" not in df_base.columns:
@@ -268,6 +272,16 @@ def append_base_pr(base_table,pr_table,target_table,engine):
     df[CHASSIS_COLUMN] = df[CHASSIS_COLUMN].astype(str).fillna("")
     df[ENGINE_COLUMN] = df[ENGINE_COLUMN].astype(str).fillna("")
 
+    # ✅ Capture rows where vehicle reg no is NULL
+    removed_veh = df[df[REG_NO_COLUMN].isna()].copy()
+
+    # ✅ Keep only rows where vehicle reg no is NOT NULL
+    df = df[df[REG_NO_COLUMN].notna()]
+
+    # ✅ Add removal reason
+    removed_veh["removal_reason"] = "vehicle reg no is NULL"
+    print(f"📌 Removed {len(removed_veh)} rows where vehicle reg no is NULL.")
+    
     # ✅ Step 3: Create Lookup Tables for Chassis & Engine Numbers
     print("🔍 Creating lookup dictionaries for faster updates...")
 
@@ -422,12 +436,22 @@ def append_base_pr(base_table,pr_table,target_table,engine):
     if not removed_duplicates.empty:
         safe_to_sql_log(removed_duplicates, LOG_TABLE, log_schema, engine)
         print(f"⚠️ Logged {len(removed_duplicates)} removed duplicates into `{log_schema}.{LOG_TABLE}`.")
+    # Add timestamp indicating when this append was run
+    removed_rows = len(removed_duplicates)
 
+    df["cleaned_timestamp"] = datetime.utcnow()
  # ✅ Load Cleaned Data into Target Table
     df.to_sql(name=target_table, schema=TARGET_SCHEMA, con=engine, if_exists="replace", index=False, chunksize = 10000)
     row_count = len(df)
     print(f"✅ Appended data successfully loaded into `{TARGET_SCHEMA}.{target_table}`.")
-    update_metadata(engine, pr_table,target_table, row_count=row_count)
+    update_metadata(
+        engine,
+        pr_table,
+        target_table,
+        row_count=row_count,
+        removed_count=removed_rows
+    )
+
 
 
 
