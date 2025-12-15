@@ -2,9 +2,12 @@
 
     "schemas":{
         "stage":"pip_stage",
-        "agg":"test_aggregation",
-        "bi_dwh":"test_bi_dwh",
-        "log":"pip_log"
+        "agg":"aggregation",
+        "bi_dwh":"bi_dwh",
+        "da/ml":"prediction",
+        "monitoring":"health_monitoring",
+        "log":"test_log",
+        "archive_log":"archive_test_log"
     },
 
     "logtables":{
@@ -13,7 +16,7 @@
         "featurelog": "feature_eng_log"
     },
 
-    "pip_log":{
+    "test_log":{
         "base_pr_metalog": {
             "table_name": "TEXT PRIMARY KEY",
             "table_rnk": "INTEGER",
@@ -57,15 +60,16 @@
             "base_pr_cnt": "BIGINT DEFAULT 0",
             "appended_basepr_cleaned": "TEXT DEFAULT 'NO'",
             "appended_basepr_name": "TEXT DEFAULT 'NO'",
-            "basepr_cleaned_cnt": "TEXT DEFAULT 'NO'",
-            "basepr_removed_cnt": "TEXT DEFAULT 'NO'",
+            "basepr_cleaned_cnt": "TEXT DEFAULT 0",
+            "basepr_removed_cnt": "TEXT DEFAULT 0",
             "is_chasiss_engine_cleaned": "TEXT DEFAULT 'NO'",
             "chasiss_cleaned_name": "TEXT",
             "chassis_cleaned_cnt": "BIGINT DEFAULT 0",
-            "chassis_removed_count": "BIGINT DEFAULT 0",
+            "chassis_removed_cnt": "BIGINT DEFAULT 0",
             "is_inusred_name_corrected": "TEXT DEFAULT 'NO'",
             "corrected_table_name": "TEXT",
             "corrected_name_cnt": "BIGINT DEFAULT 0",
+            "corrected_name_removed_cnt": "BIGINT DEFAULT 0",
             "is_booked_cleaned": "TEXT DEFAULT 'NO'",
             "booked_table_name": "TEXT",
             "booked_clean_cnt": "BIGINT DEFAULT 0",
@@ -74,11 +78,18 @@
             "count_old_policy": "BIGINT DEFAULT 0",
             "feature_eng_completed": "TEXT DEFAULT 'NO'",
             "feature_eng_name": "TEXT",
-            "feature_eng_count": "BIGINT DEFAULT 0",
+            "feature_eng_cnt": "BIGINT DEFAULT 0",
+            "new_feature_completed": "TEXT DEFAULT 'NO'",
+            "new_feature_name": "TEXT",
+            "new_feature_cnt": "BIGINT DEFAULT 0",
             "prediction_done": "TEXT DEFAULT 'NO'",
+            "pred_count": "BIGINT DEFAULT 0",
             "reason_done": "TEXT DEFAULT 'NO'",
-            "removal_reason": "TEXT",
+            "removal_reason_cnt": "BIGINT DEFAULT 0",
+            "top_3_reason": "TEXT DEFAULT 'NO'",
+            "top_3_reason_cnt": "BIGINT DEFAULT 0",
             "segment_done": "TEXT DEFAULT 'NO'",
+            "segment_cnt": "BIGINT DEFAULT 0",
             "timestamp": "TIMESTAMP DEFAULT NOW()"
         }
 
