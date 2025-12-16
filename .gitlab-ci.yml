@@ -1,5 +1,6 @@
 stages:
   - validate
+  - test
 
 validate_dags:
   stage: validate
@@ -7,10 +8,35 @@ validate_dags:
     - airflow
     - dev
     - safe
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "dev"'
   script:
-    - echo "Runner is working on Airflow VM"
-    - echo "Listing DAGs directory"
-    - ls -la dags || echo "No dags folder found"
-    - echo "CI validation completed safely"
+    - echo "Validating DAG repository structure"
+    - ls -la dags || true
+    - echo "Validation completed"
+
+syntax_check:
+  stage: test
+  tags:
+    - airflow
+    - dev
+    - safe
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  script:
+    - echo "Running Python syntax check (advisory)"
+    - python3 -m compileall dags || true
+  allow_failure: true
+
+flake8_check:
+  stage: test
+  tags:
+    - airflow
+    - dev
+    - safe
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - python3 -m pip install --user flake8 || true
+  script:
+    - echo "Running flake8 linting (advisory)"
+    - python3 -m flake8 dags --max-line-length=120 --statistics || true
+  allow_failure: true
