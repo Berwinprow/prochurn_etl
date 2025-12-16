@@ -1,0 +1,16 @@
+stages:
+  - validate
+
+validate_dags:
+  stage: validate
+  tags:
+    - airflow
+    - dev
+    - safe
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "dev"'
+  script:
+    - echo "Runner is working on Airflow VM"
+    - echo "Listing DAGs directory"
+    - ls -la dags || echo "No dags folder found"
+    - echo "CI validation completed safely"
