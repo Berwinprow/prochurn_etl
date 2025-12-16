@@ -36,5 +36,5 @@ flake8_check:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   script:
     - echo "Running flake8 linting (advisory)"
-    - flake8 dags --max-line-length=120 --statistics || true
+    - flake8 dags --max-line-length=120 --statistics
   allow_failure: true
