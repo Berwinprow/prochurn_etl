@@ -3,9 +3,9 @@ stages:
   - test
   - deploy
 
-# -----------------------------
-# 1. Validate repo structure
-# -----------------------------
+# --------------------------------
+# 1. Validate repository structure
+# --------------------------------
 validate_dags:
   stage: validate
   tags:
@@ -51,6 +51,7 @@ flake8_check:
 
 # --------------------------------
 # 4. AUTO deploy to Airflow DEV
+#    (runs ONLY after merge to dev)
 # --------------------------------
 deploy_dags_dev:
   stage: deploy
@@ -61,6 +62,6 @@ deploy_dags_dev:
   rules:
     - if: '$CI_COMMIT_BRANCH == "dev"'
   script:
-    - echo "Auto-deploying DAGs to Airflow DEV"
-    - rsync -av --checksum dags/ /home/prochurn/AirFlow/airflow/dags/
-    - echo "Deploy completed (safe, no delete)"
+    - echo "Auto-deploying DAGs to Airflow DEV (safe mode)"
+    - rsync -av --checksum --no-owner --no-group dags/ /home/prochurn/AirFlow/airflow/dags/
+    - echo "Deploy completed (no delete, no restart)"
