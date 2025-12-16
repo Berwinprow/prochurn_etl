@@ -51,7 +51,6 @@ flake8_check:
 
 # --------------------------------
 # 4. AUTO deploy to Airflow DEV
-#    (runs ONLY after merge to dev)
 # --------------------------------
 deploy_dags_dev:
   stage: deploy
@@ -63,5 +62,5 @@ deploy_dags_dev:
     - if: '$CI_COMMIT_BRANCH == "dev"'
   script:
     - echo "Auto-deploying DAGs to Airflow DEV (safe mode)"
-    - rsync -av --checksum --no-owner --no-group dags/ /home/prochurn/AirFlow/airflow/dags/
-    - echo "Deploy completed (no delete, no restart)"
+    - rsync -av --checksum --no-owner --no-group --no-times dags/ /home/prochurn/AirFlow/airflow/dags/
+    - echo "Deploy completed (safe, no delete, no restart)"
