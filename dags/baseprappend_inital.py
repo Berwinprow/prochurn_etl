@@ -178,8 +178,8 @@ def append_base_pr_initial():
         conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {TARGET_SCHEMA};"))
 
     # ✅ Extract Data from `base` and `pr`
-    query_base = f'SELECT * FROM "{SOURCE_SCHEMA}"."{BASE_TABLE}" limit 1000'
-    query_pr = f'SELECT * FROM "{SOURCE_SCHEMA}"."{PR_TABLE}" limit 1000'
+    query_base = f'SELECT * FROM "{SOURCE_SCHEMA}"."{BASE_TABLE}"'
+    query_pr = f'SELECT * FROM "{SOURCE_SCHEMA}"."{PR_TABLE}"'
     
     df_base = pd.read_sql(query_base, engine)
     df_pr = pd.read_sql(query_pr, engine)
@@ -248,10 +248,10 @@ def append_base_pr_initial():
 
      # ✅ Ensure `tie_up` column exists in both tables before appending
     if "zone" not in df_base.columns:
-        df_base["Zone"] = None  # Or ""
+        df_base["zone"] = None  # Or ""
 
     if "zone" not in df_pr.columns:
-        df_pr["Zone"] = None
+        df_pr["zone"] = None
     
     if "vehicle_segment" not in df_base.columns:
         df_base["vehicle_segment"] = None  # Or ""
@@ -260,8 +260,8 @@ def append_base_pr_initial():
         df_pr["vehicle_segment"] = None
 
     # ✅ Append `base` and `pr` Data
-    df = pd.concat([df_base[list(common_columns) + ["file_source", "booked", "tie_up", "Zone"]],
-                    df_pr[list(common_columns) + ["file_source", "booked", "tie_up", "Zone"]]], ignore_index=True)
+    df = pd.concat([df_base[list(common_columns) + ["file_source", "booked", "tie_up", "zone"]],
+                    df_pr[list(common_columns) + ["file_source", "booked", "tie_up", "zone"]]], ignore_index=True)
     print(f"📌 Appended `base` and `pr` data. Total records: {len(df)}")
     
     removed_nop = df[df[CHASSIS_COLUMN] =='']  # Capture rows to be removed
@@ -429,7 +429,7 @@ def append_base_pr_initial():
         safe_to_sql_log(removed_duplicates, LOG_TABLE, log_schema, engine)
         print(f"⚠️ Logged {len(removed_duplicates)} removed duplicates into `{log_schema}.{LOG_TABLE}`.")
     removed_rows = len(removed_duplicates)
-    df["cleaned_timestamp"] = datetime.utcnow()
+    
  # ✅ Load Cleaned Data into Target Table
     df.to_sql(name=TARGET_TABLE, schema=TARGET_SCHEMA, con=engine, if_exists="replace", index=False)
     row_count = len(df)

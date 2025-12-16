@@ -155,7 +155,7 @@ def process_file_bytes_to_postgres(file_bytes, file_name, engine, schema_name):
         for sheet_name, df in df_dict.items():
             table_name = normalize_table_name(file_name, sheet_name)
             df = clean_column_names(df)
-            df["last_runned_date"] = datetime.now()
+            
 
             if df.empty:
                 logging.warning(f"Skipping empty '{sheet_name}' in '{file_name}'.")
@@ -192,7 +192,7 @@ def process_file_bytes_to_postgres(file_bytes, file_name, engine, schema_name):
                     ),
                     {"table_name": table_name},
                 ).fetchone()
-
+                print(f"the schema and table used are {LOG_SCHEMA}.{meta_table}")
                 if result and result[0] == "YES":
                     logging.info(f"Skipping {table_name}, already loaded.")
                     return
@@ -299,26 +299,26 @@ def load_data_to_postgres_stage(**context):
     logging.info("Batch processing from Azure Blob completed successfully.")
 
 
-default_args = {
-    "owner": "airflow",
-    "depends_on_past": False,
-    "start_date": datetime(2024, 6, 1),
-    "retries": 1,
-    "retry_delay": timedelta(minutes=5),
-}
+# default_args = {
+#     "owner": "airflow",
+#     "depends_on_past": False,
+#     "start_date": datetime(2024, 6, 1),
+#     "retries": 1,
+#     "retry_delay": timedelta(minutes=5),
+# }
 
-with DAG(
-    dag_id="azure_blob_to_postgres_etl_pg_hook_v3",
-    default_args=default_args,
-    schedule_interval=None,
-    catchup=False,
-    tags=["azure", "postgres", "etl"],
-) as dag:
+# with DAG(
+#     dag_id="azure_blob_to_postgres_etl_pg_hook_v3",
+#     default_args=default_args,
+#     schedule_interval=None,
+#     catchup=False,
+#     tags=["azure", "postgres", "etl"],
+# ) as dag:
 
-    etl_task = PythonOperator(
-        task_id="process_azure_blob_to_postgres",
-        python_callable=load_data_to_postgres_stage,
-        provide_context=True,
-    )
+#     etl_task = PythonOperator(
+#         task_id="process_azure_blob_to_postgres",
+#         python_callable=load_data_to_postgres_stage,
+#         provide_context=True,
+#     )
 
-    etl_task
+#     etl_task

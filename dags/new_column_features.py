@@ -17,6 +17,7 @@ JSON_PATH = str(DAGS_DIR / "config" / "schema_metadata_config.json")
 POSTGRES_CONN_ID = "postgres_cloud_prochurn"
 TARGET_SCHEMA = get_schema("bi_dwh", JSON_PATH)
 TARGET_TABLE = "final_policy_features"
+TABLE = "baseprclaim"
 SOURCE_SCHEMA = get_schema("agg", JSON_PATH)
 LOG_SCHEMA = get_schema("log", JSON_PATH)
 FEATURE_LOG = get_log_tables("featurelog", JSON_PATH)
@@ -46,7 +47,7 @@ def update_renewal_rate_status(SCHEMA,TABLE):
 
     sql = f"""
 
-    ALTER TABLE {SCHEMA}.{TABLE}
+    ALTER TABLE {SOURCE_SCHEMA}.{TABLE}
     ADD COLUMN IF NOT EXISTS renewal_rate_status TEXT;
 
     DROP TABLE IF EXISTS temp_renewal_rate;
@@ -429,7 +430,7 @@ def build_policy_features():
     pricing_catalog.columns=["_".join(col).rstrip("_") if isinstance(col, tuple) else col for col in pricing_catalog.columns]
 
     df =pd.merge(df,pricing_catalog,how="left",on= pricing_grp_col)
-
+   
     print(f"✅ Pricing catalog columns added: {[c for c in pricing_catalog.columns if c not in pricing_grp_col]}")
 
     try:

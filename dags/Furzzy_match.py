@@ -302,6 +302,7 @@ def fuzzy_matching():
     df["New Customers"] = df["new_customer"].apply(lambda x: "Yes" if x else "No")
 
     print("✅ customer_tenure & renewal status calculated.")
+   
 
 
     try:

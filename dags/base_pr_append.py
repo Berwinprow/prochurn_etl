@@ -246,10 +246,10 @@ def append_base_pr(base_table,pr_table,target_table,engine):
 
      # ✅ Ensure `tie_up` column exists in both tables before appending
     if "zone" not in df_base.columns:
-        df_base["Zone"] = None  # Or ""
+        df_base["zone"] = None  # Or ""
 
     if "zone" not in df_pr.columns:
-        df_pr["Zone"] = None
+        df_pr["zone"] = None
     
     if "vehicle_segment" not in df_base.columns:
         df_base["vehicle_segment"] = None  # Or ""
@@ -258,8 +258,8 @@ def append_base_pr(base_table,pr_table,target_table,engine):
         df_pr["vehicle_segment"] = None
 
     # ✅ Append `base` and `pr` Data
-    df = pd.concat([df_base[list(common_columns) + ["file_source", "booked", "tie_up", "Zone"]],
-                    df_pr[list(common_columns) + ["file_source", "booked", "tie_up", "Zone"]]], ignore_index=True)
+    df = pd.concat([df_base[list(common_columns) + ["file_source", "booked", "tie_up", "zone"]],
+                    df_pr[list(common_columns) + ["file_source", "booked", "tie_up", "zone"]]], ignore_index=True)
     print(f"📌 Appended `base` and `pr` data. Total records: {len(df)}")
     
     removed_nop = df[df[CHASSIS_COLUMN] =='']  # Capture rows to be removed
@@ -439,7 +439,7 @@ def append_base_pr(base_table,pr_table,target_table,engine):
     # Add timestamp indicating when this append was run
     removed_rows = len(removed_duplicates)
 
-    df["cleaned_timestamp"] = datetime.utcnow()
+    
  # ✅ Load Cleaned Data into Target Table
     df.to_sql(name=target_table, schema=TARGET_SCHEMA, con=engine, if_exists="replace", index=False, chunksize = 10000)
     row_count = len(df)

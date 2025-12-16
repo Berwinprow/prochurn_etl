@@ -157,7 +157,7 @@ def addon_column():
     #     mask = df["booked"] == 1
     #     df.loc[mask, "renewed_flag"] = 1
 
-
+    
     # 5. Save back to same source table
     df.to_sql(
         name=TARGET_TABLE,

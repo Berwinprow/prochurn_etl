@@ -20,6 +20,8 @@ __pycache__/
 plugins/
 automation/
 backup/
+weights/
+pgdata/
 
 
 

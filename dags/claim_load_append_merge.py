@@ -18,7 +18,7 @@ from schema_table_config import get_schema,get_log_tables
 # ---------------------------------------------------------------------
 
 DAGS_DIR = Path(__file__).resolve().parent
-JSON_PATH = str(DAGS_DIR / "config" / "schema_metadata_config")
+JSON_PATH = str(DAGS_DIR / "config" / "schema_metadata_config.json")
 
 POSTGRES_CONN_ID = "postgres_cloud_prochurn"
 SOURCE_SCHEMA = get_schema("stage", JSON_PATH)
@@ -136,7 +136,7 @@ def append_claim_table():
         # Fix column renaming if required
         if "status_of_claim.1" in df.columns and "updated_status" not in df.columns:
             df.rename(columns={"status_of_claim.1": "updated_status"}, inplace=True)
-
+        
         dfs.append(df)
         print(f"📂 Extracted {len(df)} rows from {table_name}.")
 
@@ -215,6 +215,7 @@ def merge_claim_table():
 
     # Step 5: Convert 'Settle date' to datetime and coerce errors
     df['settle_date'] = pd.to_datetime(df['settle_date'], errors='coerce')
+    
     # capture duplicates before dropping
     removed_dupes = df[df.duplicated(subset=group_cols, keep="last")]
     log_removed_rows(removed_dupes, "Duplicate claim (keeping latest by settle_date)", engine)
@@ -317,7 +318,8 @@ def merge_basepr_with_claim():
         )
 
         print(f"✅ Merged chunk at offset {offset} with {len(merged)} rows")
-
+        # ⭐ Add timestamp column
+        merged["merge_timestamp"] = datetime.utcnow()
         # Write to table in chunks
         write_mode = "replace" if first else "append"
         merged.to_sql(

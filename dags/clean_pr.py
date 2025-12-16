@@ -268,7 +268,7 @@ def clean_and_load_pr_data():
             removed_data.to_sql(name=log_table, schema=LOG_SCHEMA, con=engine, if_exists="replace", index=False)
             print(f"⚠️ Removed rows logged into `{LOG_SCHEMA}.{log_table}` with timestamp `{pipeline_run_time}`.")
             
-        df["cleaned_timestamp"] = datetime.utcnow()
+        df["last_runned_date"] = datetime.utcnow()
         # ✅ Step 8: Load cleaned data into `bi_dwh`
         target_table = f"{source_table}"
         df.to_sql(name=target_table, schema=TARGET_SCHEMA, con=engine, if_exists="replace", index=False, dtype={POLICY_NUMBER_COLUMN: String})

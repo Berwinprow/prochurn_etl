@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 # --- Import ETL Stage Functions ---
-from load_data_to_postgres_stage import load_data_to_postgres_stage
+from load_data_to_postgres_stage_test_flake import load_data_to_postgres_stage
 from base_clean import cleanse_and_load_base_tables
 from clean_pr import clean_and_load_pr_data
 from baseprappend_inital import append_base_pr_initial
@@ -105,7 +105,7 @@ default_args = {
 # ✅ DAG Definition
 # ---------------------------------------------------------------------
 with DAG(
-    dag_id='liberty_etl_data_pipeline_initial',
+    dag_id='initial_pipeline_etl',
     default_args=default_args,
     schedule_interval=None,
     catchup=False,
@@ -114,27 +114,27 @@ with DAG(
 
     start = DummyOperator(task_id="start_pipeline")
 
-     # ---------------- Stage 0 ----------------
-    create_Schema = PythonOperator(
-        task_id='Create_all_schemas',
-        python_callable=ensure_all_schemas,
-        provide_context=True,
-        op_kwargs={
-                "conn_id": postgres_conn_id,
-                "json_path": json_path,
-            },
-    )
-    create_log_tables = PythonOperator(
-        task_id= "create_log_schema",
-        python_callable = get_logtable_details_from_json,
-        op_kwargs = {"conn_id": postgres_conn_id , "json_path":json_path},
-    )
-    # ---------------- Stage 1 ----------------
-    load_initial_data = PythonOperator(
-        task_id='initial_data_load',
-        python_callable=load_data_to_postgres_stage,
-        provide_context=True,
-    )
+    #  # ---------------- Stage 0 ----------------
+    # create_Schema = PythonOperator(
+    #     task_id='Create_all_schemas',
+    #     python_callable=ensure_all_schemas,
+    #     provide_context=True,
+    #     op_kwargs={
+    #             "conn_id": postgres_conn_id,
+    #             "json_path": json_path,
+    #         },
+    # )
+    # create_log_tables = PythonOperator(
+    #     task_id= "create_log_schema",
+    #     python_callable = get_logtable_details_from_json,
+    #     op_kwargs = {"conn_id": postgres_conn_id , "json_path":json_path},
+    # )
+    # # ---------------- Stage 1 ----------------
+    # load_initial_data = PythonOperator(
+    #     task_id='initial_data_load',
+    #     python_callable=load_data_to_postgres_stage,
+    #     provide_context=True,
+    # )
 
     # ---------------- Stage 2 ----------------
     clean_base_data = PythonOperator(
@@ -228,7 +228,7 @@ with DAG(
     # ---------------- DAG Flow ----------------
     
 
-    start >> create_Schema >> create_log_tables >> load_initial_data >> [clean_base_data , clean_pr_data ] >> append_basepr_initial >> end
+    start >> [clean_base_data , clean_pr_data ] >> append_basepr_initial >> end
     
 
 
