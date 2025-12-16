@@ -205,10 +205,14 @@ def cleanse_and_load_base_tables(**context):
 
             # 📌 Drop duplicate policies keeping highest premium
             if "policy_no" in df.columns and "total_premium_payable" in df.columns:
-                df = df.sort_values("total_premium_payable", ascending=False).drop_duplicates(subset=["policy_no"])
+                df_sorted = df.sort_values("total_premium_payable", ascending=False)
+                removed_policy_dupes = df_sorted[df_sorted.duplicated(subset=["policy_no"], keep="first")].copy()
+                removed_policy_dupes["removal_reason"] = "Duplicate policy_no (kept highest premium)"
+                removed_rows_all = pd.concat([removed_rows_all, removed_policy_dupes])
+                df = df_sorted.drop_duplicates(subset=["policy_no"], keep="first")
 
             removed_rows_all = pd.concat([removed_rows_all, removed_rows])
-
+            
             # ✅ Write cleaned chunk to Cleaned schema using isolated connection
             with engine.begin() as write_conn:
                 df.to_sql(name=source_table, schema=TARGET_SCHEMA, con=write_conn, if_exists="replace", index=False,chunksize=50000,method='multi')

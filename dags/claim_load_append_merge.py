@@ -119,7 +119,7 @@ def append_claim_table():
     query = f"""
         SELECT table_name 
         FROM "{LOG_SCHEMA}"."{CLAIM_LOG}"
-        WHERE stage_loaded = 'YES' AND is_appended = 'NO'
+        WHERE stage_loaded = 'YES' 
         ORDER BY year ASC
     """
     claim_tables = pd.read_sql(query, engine)

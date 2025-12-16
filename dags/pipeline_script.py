@@ -114,7 +114,7 @@ with DAG(
 
     start = DummyOperator(task_id="start_pipeline")
 
-    #  # ---------------- Stage 0 ----------------
+    #  ---------------- Stage 0 ----------------
     # create_Schema = PythonOperator(
     #     task_id='Create_all_schemas',
     #     python_callable=ensure_all_schemas,
@@ -129,12 +129,12 @@ with DAG(
     #     python_callable = get_logtable_details_from_json,
     #     op_kwargs = {"conn_id": postgres_conn_id , "json_path":json_path},
     # )
-    # # ---------------- Stage 1 ----------------
-    # load_initial_data = PythonOperator(
-    #     task_id='initial_data_load',
-    #     python_callable=load_data_to_postgres_stage,
-    #     provide_context=True,
-    # )
+    # ---------------- Stage 1 ----------------
+    load_initial_data = PythonOperator(
+        task_id='initial_data_load',
+        python_callable=load_data_to_postgres_stage,
+        provide_context=True,
+    )
 
     # ---------------- Stage 2 ----------------
     clean_base_data = PythonOperator(
@@ -150,51 +150,50 @@ with DAG(
         provide_context=True,
     )
 
-    append_basepr_initial = PythonOperator(
+    # append_basepr_initial = PythonOperator(
+    #     task_id="base_pr_data_appending",
+    #     python_callable=append_base_pr_initial,
+    #     provide_context=True,
+    # )
+
+    # ---------------- Stage 4 ----------------
+    append_basepr = PythonOperator(
         task_id="base_pr_data_appending",
-        python_callable=append_base_pr_initial,
+        python_callable=run_all_iterations,
         provide_context=True,
     )
 
-    # # ---------------- Stage 4 ----------------
-    # append_basepr = PythonOperator(
-    #     task_id="base_pr_data_appending",
-    #     python_callable=run_all_iterations,
-    #     provide_context=True,
-    # )
+    # ---------------- Stage 5 (Optional) ----------------
+    fuzzy_match = PythonOperator(
+        task_id="adding_fuzzy_matching_for_basepr_append",
+        python_callable=fuzzy_matching,
+        provide_context=True,
+    )
+    append_claim = PythonOperator(
+        task_id = "append_claim",
+        python_callable = append_claim_table
+    )
 
-    # # ---------------- Stage 5 (Optional) ----------------
-    # fuzzy_match = PythonOperator(
-    #     task_id="adding_fuzzy_matching_for_basepr_append",
-    #     python_callable=fuzzy_matching,
-    #     provide_context=True,
-    # )
-    # append_claim = PythonOperator(
-    #     task_id = "append_claim",
-    #     python_callable = append_claim_table
-    # )
+    merge_claim = PythonOperator(
+        task_id = "mergeclaim",
+        python_callable = merge_claim_table
+    )
 
-    # merge_claim = PythonOperator(
-    #     task_id = "mergeclaim",
-    #     python_callable = merge_claim_table
-    # )
+    merge_baseprclaim = PythonOperator(
+        task_id = "mergebaseprwithclaim",
+        python_callable = merge_basepr_with_claim
+    )
+    add_on = PythonOperator(
+        task_id="add_on",
+        python_callable=addon_column,
+        provide_context=True,
+    )
 
-    # merge_baseprclaim = PythonOperator(
-    #     task_id = "mergebaseprwithclaim",
-    #     python_callable = merge_basepr_with_claim
-    # )
-    # add_on = PythonOperator(
-    #     task_id="add_on",
-    #     python_callable=addon_column,
-    #     provide_context=True,
-    # )
-
-
-    # new_column_features = PythonOperator(
-    #     task_id="new_column_features",
-    #     python_callable=build_policy_features,
-    #     provide_context=True,
-    # )
+    new_column_features = PythonOperator(
+        task_id="new_column_features",
+        python_callable=build_policy_features,
+        provide_context=True,
+    )
 
       # ---------------- EMAIL ALERT ON FAILURE ----------------
     # send_failure_email = EmailOperator(
@@ -228,7 +227,8 @@ with DAG(
     # ---------------- DAG Flow ----------------
     
 
-    start >> [clean_base_data , clean_pr_data ] >> append_basepr_initial >> end
+    start >> load_initial_data >> [clean_base_data , clean_pr_data , append_claim] >> append_basepr >> [fuzzy_match, merge_claim]
+    [fuzzy_match, merge_claim] >> merge_baseprclaim >> add_on >> new_column_features >> end
     
 
 
