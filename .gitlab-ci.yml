@@ -1,7 +1,11 @@
 stages:
   - validate
   - test
+  - deploy
 
+# -----------------------------
+# 1. Validate repo structure
+# -----------------------------
 validate_dags:
   stage: validate
   tags:
@@ -13,6 +17,9 @@ validate_dags:
     - ls -la dags || true
     - echo "Validation completed"
 
+# --------------------------------
+# 2. Syntax check (MR only, advisory)
+# --------------------------------
 syntax_check:
   stage: test
   tags:
@@ -26,6 +33,9 @@ syntax_check:
     - python3 -m compileall dags || true
   allow_failure: true
 
+# --------------------------------
+# 3. flake8 lint (MR only, advisory)
+# --------------------------------
 flake8_check:
   stage: test
   tags:
@@ -38,3 +48,19 @@ flake8_check:
     - echo "Running flake8 linting (advisory)"
     - flake8 dags --max-line-length=120 --statistics
   allow_failure: true
+
+# --------------------------------
+# 4. AUTO deploy to Airflow DEV
+# --------------------------------
+deploy_dags_dev:
+  stage: deploy
+  tags:
+    - airflow
+    - dev
+    - safe
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "dev"'
+  script:
+    - echo "Auto-deploying DAGs to Airflow DEV"
+    - rsync -av --checksum dags/ /home/prochurn/AirFlow/airflow/dags/
+    - echo "Deploy completed (safe, no delete)"
