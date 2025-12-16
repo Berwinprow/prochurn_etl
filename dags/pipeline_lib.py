@@ -170,8 +170,7 @@ with DAG(
 ) as dag:
 
     # ---------------- START ----------------
-    with TaskGroup(group_id="start") as stage0_0_creation:
-        start = DummyOperator(task_id="start_pipeline")
+    start = DummyOperator(task_id="start_pipeline")
 
     # ---------------- Stage 0 ----------------
     with TaskGroup(group_id="schema_creation") as stage0_creation:
