@@ -1,0 +1,97 @@
+{
+
+    "schemas":{
+        "stage":"pip_stage",
+        "agg":"aggregation",
+        "bi_dwh":"bi_dwh",
+        "da/ml":"prediction",
+        "monitoring":"health_monitoring",
+        "log":"test_log",
+        "archive_log":"archive_test_log"
+    },
+
+    "logtables":{
+        "metadata":"base_pr_metalog",
+        "claimlog":"claim_elt_log",
+        "featurelog": "feature_eng_log"
+    },
+
+    "test_log":{
+        "base_pr_metalog": {
+            "table_name": "TEXT PRIMARY KEY",
+            "table_rnk": "INTEGER",
+            "year": "INTEGER",
+            "stage_loaded": "TEXT DEFAULT 'NO'",
+            "stage_count": "BIGINT DEFAULT 0",
+            "is_base_cleaned": "TEXT DEFAULT 'NO'",
+            "count_base": "BIGINT DEFAULT 0",
+            "base_removed_cnt": "BIGINT DEFAULT 0",
+            "is_pr_cleaned": "TEXT DEFAULT 'NO'",
+            "count_pr": "BIGINT DEFAULT 0",
+            "pr_removed_cnt": "BIGINT DEFAULT 0",
+            "is_base_appended": "TEXT DEFAULT 'NO'",
+            "base_appended_name": "TEXT",
+            "base_appended_cnt": "BIGINT DEFAULT 0",
+            "is_pr_appended": "TEXT DEFAULT 'NO'",
+            "pr_appended_name": "TEXT",
+            "pr_appended_cnt": "BIGINT DEFAULT 0",
+            "timestamp": "TIMESTAMP DEFAULT NOW()"
+    },
+
+        "claim_elt_log": {
+            "table_name": "TEXT PRIMARY KEY",
+            "rnk": "INTEGER",
+            "year": "INTEGER",
+            "stage_loaded": "TEXT DEFAULT 'NO'",
+            "stage_count": "BIGINT DEFAULT 0",
+            "is_appended": "TEXT DEFAULT 'NO'",
+            "appended_cnt": "BIGINT DEFAULT 0",
+            "is_merged": "TEXT DEFAULT 'NO'",
+            "merged_cnt": "BIGINT DEFAULT 0",
+            "is_basepr_claim_appended": "TEXT DEFAULT 'NO'",
+            "baseprclaim_cnt": "BIGINT DEFAULT 0",
+            "timestamp": "TIMESTAMP DEFAULT NOW()"
+    },
+
+        "feature_eng_log": {
+            "last_run_date": "DATE PRIMARY KEY",
+            "is_basepr_appended": "TEXT DEFAULT 'NO'",
+            "base_pr_appended_name": "TEXT",
+            "base_pr_cnt": "BIGINT DEFAULT 0",
+            "appended_basepr_cleaned": "TEXT DEFAULT 'NO'",
+            "appended_basepr_name": "TEXT DEFAULT 'NO'",
+            "basepr_cleaned_cnt": "TEXT DEFAULT 0",
+            "basepr_removed_cnt": "TEXT DEFAULT 0",
+            "is_chasiss_engine_cleaned": "TEXT DEFAULT 'NO'",
+            "chasiss_cleaned_name": "TEXT",
+            "chassis_cleaned_cnt": "BIGINT DEFAULT 0",
+            "chassis_removed_cnt": "BIGINT DEFAULT 0",
+            "is_inusred_name_corrected": "TEXT DEFAULT 'NO'",
+            "corrected_table_name": "TEXT",
+            "corrected_name_cnt": "BIGINT DEFAULT 0",
+            "corrected_name_removed_cnt": "BIGINT DEFAULT 0",
+            "is_booked_cleaned": "TEXT DEFAULT 'NO'",
+            "booked_table_name": "TEXT",
+            "booked_clean_cnt": "BIGINT DEFAULT 0",
+            "is_old_policy_mapped": "TEXT DEFAULT 'NO'",
+            "old_policy_mapped_name": "TEXT",
+            "count_old_policy": "BIGINT DEFAULT 0",
+            "feature_eng_completed": "TEXT DEFAULT 'NO'",
+            "feature_eng_name": "TEXT",
+            "feature_eng_cnt": "BIGINT DEFAULT 0",
+            "new_feature_completed": "TEXT DEFAULT 'NO'",
+            "new_feature_name": "TEXT",
+            "new_feature_cnt": "BIGINT DEFAULT 0",
+            "prediction_done": "TEXT DEFAULT 'NO'",
+            "pred_count": "BIGINT DEFAULT 0",
+            "reason_done": "TEXT DEFAULT 'NO'",
+            "removal_reason_cnt": "BIGINT DEFAULT 0",
+            "top_3_reason": "TEXT DEFAULT 'NO'",
+            "top_3_reason_cnt": "BIGINT DEFAULT 0",
+            "segment_done": "TEXT DEFAULT 'NO'",
+            "segment_cnt": "BIGINT DEFAULT 0",
+            "timestamp": "TIMESTAMP DEFAULT NOW()"
+        }
+
+    }
+}
