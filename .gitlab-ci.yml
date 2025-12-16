@@ -34,9 +34,7 @@ flake8_check:
     - safe
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script:
-    - python3 -m pip install --user flake8 || true
   script:
     - echo "Running flake8 linting (advisory)"
-    - python3 -m flake8 dags --max-line-length=120 --statistics || true
+    - flake8 dags --max-line-length=120 --statistics || true
   allow_failure: true
