@@ -64,3 +64,26 @@ deploy_dags_dev:
     - echo "Auto-deploying DAGs to Airflow DEV (safe mode)"
     - rsync -av --checksum --no-owner --no-group --no-times dags/ /home/prochurn/AirFlow/airflow/dags/
     - echo "Deploy completed (safe, no delete, no restart)"
+    
+force_sync_dev_to_swetha:
+  stage: deploy
+  tags:
+    - airflow
+    - dev
+    - safe
+  needs:
+    - deploy_dags_dev
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "dev"'
+  script: |
+    echo "FORCE syncing dev → swetha (mirror only)"
+
+    git config --global user.email "ci-bot@prochurn.local"
+    git config --global user.name "GitLab CI Bot"
+
+    git fetch origin
+    git checkout dev
+
+    git push --force https://oauth2:${SYNC_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git dev:refs/heads/swetha
+
+    echo "Force sync completed: swetha now mirrors dev"
