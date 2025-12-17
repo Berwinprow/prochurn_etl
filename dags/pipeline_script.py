@@ -17,7 +17,7 @@ from baseprappend_inital import append_base_pr_initial
 from Furzzy_match import fuzzy_matching
 from claim_load_append_merge import append_claim_table , merge_claim_table , merge_basepr_with_claim
 from addons import addon_column
-from new_column_features import build_policy_features
+from new_column_features import build_policy_features, update_renewal_rate_status
 from base_pr_append import run_all_iterations
 from schema_table_config import ensure_all_schemas,get_logtable_details_from_json
 
@@ -195,6 +195,12 @@ with DAG(
         provide_context=True,
     )
 
+    update_renewal_task = PythonOperator(
+        task_id="renewal_rate_update",
+        python_callable=update_renewal_rate_status,
+        provide_context=True,
+    )
+
       # ---------------- EMAIL ALERT ON FAILURE ----------------
     # send_failure_email = EmailOperator(
     #     task_id='notify_failure_email',
@@ -228,7 +234,7 @@ with DAG(
     
 
     start >> load_initial_data >> [clean_base_data , clean_pr_data , append_claim] >> append_basepr >> [fuzzy_match, merge_claim]
-    [fuzzy_match, merge_claim] >> merge_baseprclaim >> add_on >> new_column_features >> end
+    [fuzzy_match, merge_claim] >> merge_baseprclaim >> add_on >> update_renewal_task >> new_column_features >> end
     
 
 

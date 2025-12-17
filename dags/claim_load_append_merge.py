@@ -219,7 +219,7 @@ def merge_claim_table():
     # capture duplicates before dropping
     removed_dupes = df[df.duplicated(subset=group_cols, keep="last")]
     log_removed_rows(removed_dupes, "Duplicate claim (keeping latest by settle_date)", engine)
-
+    print("loged the removed rows")
     # Step 6: Sort by 'Settle date' and select the latest row for each group
     df_latest = df.sort_values(by='settle_date').drop_duplicates(subset=group_cols, keep='last')
 

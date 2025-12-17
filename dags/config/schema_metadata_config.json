@@ -4,13 +4,16 @@
         "stage":"pip_stage",
         "agg":"pip_aggregation",
         "bi_dwh":"pip_bi_dwh",
-        "log":"pip_log"
+        "log":"pip_log",
+        "da/ml":"pip_prediction",
+        "monitoring":"pip_health_monitoring",
+        "archive_log":"pip_archive_test_log"
     },
 
     "logtables":{
         "metadata":"base_pr_metalog",
         "claimlog":"claim_elt_log",
-        "featurelog": "feature_eng_etl_log"
+        "featurelog": "feature_eng_log"
     },
 
     "pip_log":{

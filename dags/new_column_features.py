@@ -38,7 +38,7 @@ def get_latest_addons_table(engine):
         print(f"no table found in {FEATURE_LOG}")
         return None
 
-def update_renewal_rate_status(SCHEMA,TABLE):    
+def update_renewal_rate_status():    
     hook = PostgresHook(postgres_conn_id="postgres_cloud_prochurn")
     conn = hook.get_conn()
     cur = conn.cursor()
@@ -87,9 +87,9 @@ def update_renewal_rate_status(SCHEMA,TABLE):
                 ELSE 'No Change'
             END
         END AS renewal_status
-    FROM {SCHEMA}.{TABLE};
+    FROM {SOURCE_SCHEMA}.{TABLE};
 
-    UPDATE {SCHEMA}.{TABLE} t
+    UPDATE {SOURCE_SCHEMA}.{TABLE} t
     SET renewal_rate_status = tmp.renewal_status
     FROM temp_renewal_rate tmp
     WHERE t.cleaned_chassis_no = tmp.cleaned_chassis_no
@@ -461,7 +461,7 @@ def build_policy_features():
 
         row_count = len(df)
         update_feature_log_newcol(fresh_engine, TARGET_TABLE, row_count)
-        update_renewal_rate_status(TARGET_SCHEMA, TARGET_TABLE)
+        # update_renewal_rate_status(TARGET_SCHEMA, TARGET_TABLE)
         print(f"✅ Feature log updated: new_col = {TARGET_TABLE}, count = {row_count}")
 
     except (PendingRollbackError, OperationalError) as e:
