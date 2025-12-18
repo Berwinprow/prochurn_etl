@@ -292,10 +292,13 @@ def append_base_pr(base_table,pr_table,target_table,engine):
         .to_dict()
     )
     def update_model(row):
-        """Update chassis number only if `veh_reg_no` is NOT 'new'."""
         if row[REG_NO_COLUMN] == "new":
-            return row[MODEL_COLUMN]  # Keep as-is
-        return model_lookup.get((row[REG_NO_COLUMN], row[MODEL_COLUMN]))
+            return row[MODEL_COLUMN]
+
+        return model_lookup.get(
+            row[REG_NO_COLUMN],
+            row[MODEL_COLUMN]
+        )
     df[MODEL_COLUMN] = df.apply(update_model, axis=1)
     
     chassis_lookup = (

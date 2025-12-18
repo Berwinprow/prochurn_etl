@@ -72,7 +72,8 @@
         "total_sum_insured":"vehicle_idv",
         "channel":"new_vertical",
         "detariff_disc_rate":"applicable_discount_with_ncb",
-        "pc_segment_type":"vehicle_segment "
+        "pc_segment_type":"vehicle_segment ",
+        "zone_name":"zone"
 
     },
     "zonemapping":{

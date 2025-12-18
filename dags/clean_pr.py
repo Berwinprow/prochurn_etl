@@ -189,6 +189,26 @@ def clean_and_load_pr_data():
                 df[cleaned_col] = df[original_col].astype(str).apply(clean_text)
 
         print("🧼 Cleaned chassis, engine, insured name, vehicle reg no, and branch name.")
+        # ---------------------------------------------------------
+        # Clean and normalize zone for PR 2023 (your new block)
+        # ---------------------------------------------------------
+        if "zone" in df.columns:
+            df["zone"] = df["zone"].astype(str).str.upper().str.strip()
+
+            df["zone"] = df["zone"].replace(
+                {
+                    "NORTH ZONE": "NORTH",
+                    "SOUTH ZONE": "SOUTH",
+                    "WEST ZONE": "WEST",
+                    "EAST": "EAST",
+                    "CORPORATE OFFICE": None,
+                }
+            )
+
+            print("✅ PR 2023 → zone cleaned (NORTH/SOUTH/EAST/WEST, Corporate → NULL)")
+        else:
+            df["zone"] = None
+            print("✅ PR 2023 → zone column missing, added as NULL")
 
         # ✅ Step 2: Concatenate Chassis & Engine Numbers
         if "cleaned_chassis_no" in df.columns and "cleaned_engine_no" in df.columns:

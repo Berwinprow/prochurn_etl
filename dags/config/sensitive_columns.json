@@ -1,0 +1,17 @@
+{
+  "global_sensitive_columns": [
+    "insured_name",
+    "engine_no",
+    "chassis_no",
+    "veh_reg_no",
+    "engine_number",
+    "reg_no",
+    "chassis_number",
+    "enginenumber",
+    "cleaned_chassis_no",
+    "cleaned_engine_no",
+    "cleaned_insured_name",
+    "cleaned_veh_reg_no",
+    "chassis_engine_no"
+  ]
+}

@@ -8,6 +8,10 @@ numpy
 python-Levenshtein     
 cryptography
 joblib
+cryptography
+azure-identity
+azure-keyvault-secrets
+
 
 
 # ML / Stats libs

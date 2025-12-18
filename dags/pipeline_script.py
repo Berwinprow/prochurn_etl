@@ -130,11 +130,11 @@ with DAG(
     #     op_kwargs = {"conn_id": postgres_conn_id , "json_path":json_path},
     # )
     # ---------------- Stage 1 ----------------
-    load_initial_data = PythonOperator(
-        task_id='initial_data_load',
-        python_callable=load_data_to_postgres_stage,
-        provide_context=True,
-    )
+    # load_initial_data = PythonOperator(
+    #     task_id='initial_data_load',
+    #     python_callable=load_data_to_postgres_stage,
+    #     provide_context=True,
+    # )
 
     # ---------------- Stage 2 ----------------
     clean_base_data = PythonOperator(
@@ -169,15 +169,15 @@ with DAG(
         python_callable=fuzzy_matching,
         provide_context=True,
     )
-    append_claim = PythonOperator(
-        task_id = "append_claim",
-        python_callable = append_claim_table
-    )
+    # append_claim = PythonOperator(
+    #     task_id = "append_claim",
+    #     python_callable = append_claim_table
+    # )
 
-    merge_claim = PythonOperator(
-        task_id = "mergeclaim",
-        python_callable = merge_claim_table
-    )
+    # merge_claim = PythonOperator(
+    #     task_id = "mergeclaim",
+    #     python_callable = merge_claim_table
+    # )
 
     merge_baseprclaim = PythonOperator(
         task_id = "mergebaseprwithclaim",
@@ -233,8 +233,8 @@ with DAG(
     # ---------------- DAG Flow ----------------
     
 
-    start >> load_initial_data >> [clean_base_data , clean_pr_data , append_claim] >> append_basepr >> [fuzzy_match, merge_claim]
-    [fuzzy_match, merge_claim] >> merge_baseprclaim >> add_on >> update_renewal_task >> new_column_features >> end
+    start >> [clean_base_data , clean_pr_data ] >> append_basepr >> fuzzy_match
+    fuzzy_match >> merge_baseprclaim >> add_on >> update_renewal_task >> new_column_features >> end
     
-
+    # start >> [clean_base_data , clean_pr_data] >> append_basepr_initial
 
