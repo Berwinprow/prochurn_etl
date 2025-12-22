@@ -14,6 +14,8 @@ from time import sleep
 from pathlib import Path
 from datetime import timedelta
 from schema_table_config import get_schema, get_log_tables, get_column_mapping
+from config.crypto_utils import get_fernet , encrypt_value , decrypt_value
+from config.config_loader import load_sensitive_columns
 
 # ---------------------------------------------------------------------
 # 🔧 Constants
@@ -126,11 +128,25 @@ def cleanse_and_load_base_tables(**context):
     with engine.begin() as conn:
         conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {TARGET_SCHEMA};"))
         conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {LOG_SCHEMA};"))
+    # 🔐 Encryption setup (once per DAG run)
+    fernet = get_fernet()
+    sensitive_cols = load_sensitive_columns()
+
+    print("🔐 Fernet initialized & sensitive columns loaded")
+
 
     for source_table in source_tables:
         try:
             print(f"\n▶ Processing table: {source_table}")
             df = pd.read_sql(text(f'SELECT * FROM "{SOURCE_SCHEMA}"."{source_table}"'), engine)
+            # 🔓 Decrypt sensitive columns before cleaning
+            for col in df.columns:
+                if col in sensitive_cols:
+                    df[col] = df[col].apply(
+                        lambda x: decrypt_value(x, fernet)
+                    )
+
+            print(f"🔓 Decrypted sensitive columns for {source_table}")
 
             removed_rows_all = pd.DataFrame()
             removed_cnt = 0
@@ -212,7 +228,15 @@ def cleanse_and_load_base_tables(**context):
                 df = df_sorted.drop_duplicates(subset=["policy_no"], keep="first")
 
             removed_rows_all = pd.concat([removed_rows_all, removed_rows])
-            
+            # 🔐 Re-encrypt sensitive columns before loading
+            for col in df.columns:
+                if col in sensitive_cols:
+                    df[col] = df[col].apply(
+                        lambda x: encrypt_value(x, fernet)
+                    )
+
+            print(f"🔐 Re-encrypted sensitive columns before loading {TARGET_SCHEMA}.{source_table}")
+
             # ✅ Write cleaned chunk to Cleaned schema using isolated connection
             with engine.begin() as write_conn:
                 df.to_sql(name=source_table, schema=TARGET_SCHEMA, con=write_conn, if_exists="replace", index=False,chunksize=50000,method='multi')
