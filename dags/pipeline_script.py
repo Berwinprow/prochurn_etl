@@ -20,7 +20,7 @@ from addons import addon_column
 from new_column_features import build_policy_features, update_renewal_rate_status
 from base_pr_append import run_all_iterations
 from schema_table_config import ensure_all_schemas,get_logtable_details_from_json
-
+from new_script import new
 
 postgres_conn_id = "postgres_cloud_prochurn"
 DAG_DIR = Path(__file__).resolve().parent
