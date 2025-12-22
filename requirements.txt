@@ -8,9 +8,9 @@ numpy
 python-Levenshtein     
 cryptography
 joblib
-cryptography
-azure-identity
-azure-keyvault-secrets
+azure-identity>=1.15.0
+azure-keyvault-secrets>=4.8.0
+cryptography>=41.0.0
 
 
 

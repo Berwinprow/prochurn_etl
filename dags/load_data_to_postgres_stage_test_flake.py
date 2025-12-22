@@ -20,7 +20,8 @@ from airflow.operators.python import PythonOperator
 from datetime import timedelta
 from pathlib import Path
 from schema_table_config import get_schema, get_log_tables
-
+from config.crypto_utils import get_fernet , encrypt_value , decrypt_value
+from config.config_loader import load_sensitive_columns
 
 
 # ---------------------------------------------------------------------
@@ -152,11 +153,17 @@ def process_file_bytes_to_postgres(file_bytes, file_name, engine, schema_name):
         else:
             df_dict = pd.read_excel(io.BytesIO(file_bytes), sheet_name=None, engine="openpyxl")
 
+        sensitive_cols = load_sensitive_columns()
+        fernet = get_fernet()
+
         for sheet_name, df in df_dict.items():
             table_name = normalize_table_name(file_name, sheet_name)
             df = clean_column_names(df)
             
-
+            for col in df.columns:
+                if col in sensitive_cols:
+                    df[col] = df[col].apply(lambda x: encrypt_value(x,fernet))
+            
             if df.empty:
                 logging.warning(f"Skipping empty '{sheet_name}' in '{file_name}'.")
                 continue
@@ -299,26 +306,26 @@ def load_data_to_postgres_stage(**context):
     logging.info("Batch processing from Azure Blob completed successfully.")
 
 
-# default_args = {
-#     "owner": "airflow",
-#     "depends_on_past": False,
-#     "start_date": datetime(2024, 6, 1),
-#     "retries": 1,
-#     "retry_delay": timedelta(minutes=5),
-# }
+default_args = {
+    "owner": "airflow",
+    "depends_on_past": False,
+    "start_date": datetime(2024, 6, 1),
+    "retries": 1,
+    "retry_delay": timedelta(minutes=5),
+}
 
-# with DAG(
-#     dag_id="azure_blob_to_postgres_etl_pg_hook_v3",
-#     default_args=default_args,
-#     schedule_interval=None,
-#     catchup=False,
-#     tags=["azure", "postgres", "etl"],
-# ) as dag:
+with DAG(
+    dag_id="azure_blob_to_postgres_etl_pg_hook_v3",
+    default_args=default_args,
+    schedule_interval=None,
+    catchup=False,
+    tags=["azure", "postgres", "etl"],
+) as dag:
 
-#     etl_task = PythonOperator(
-#         task_id="process_azure_blob_to_postgres",
-#         python_callable=load_data_to_postgres_stage,
-#         provide_context=True,
-#     )
+    etl_task = PythonOperator(
+        task_id="process_azure_blob_to_postgres",
+        python_callable=load_data_to_postgres_stage,
+        provide_context=True,
+    )
 
-#     etl_task
+    etl_task
