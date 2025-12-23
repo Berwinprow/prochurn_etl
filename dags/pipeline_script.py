@@ -20,73 +20,79 @@ from addons import addon_column
 from new_column_features import build_policy_features, update_renewal_rate_status
 from base_pr_append import run_all_iterations
 from schema_table_config import ensure_all_schemas,get_logtable_details_from_json
-from new_script import new
+from future_prediction_lib import future_prediction
+from not_renewed_reason_lib import call_pred_data_def , call_historic_data_def
+from top_3_reason_lib import top_3_reason
+from customer_segmentation_lib import cus_segmentation
+from model_health_monitoring_lib import Monitoring
+
 
 postgres_conn_id = "postgres_cloud_prochurn"
 DAG_DIR = Path(__file__).resolve().parent
 json_path = str(DAG_DIR/"config"/"schema_metadata_config.json")
+
 # ---------------------------------------------------------------------
 # ✅ Custom Failure Email Callback (Gmail-based)
 # ---------------------------------------------------------------------
-# def send_failure_email(context):
-#     dag_id = context.get('dag').dag_id
-#     task_id = context.get('task_instance').task_id
-#     exception = context.get('exception')
-#     execution_date = context.get('execution_date')
-#     log_url = context.get('task_instance').log_url
+def send_failure_email(context):
+    dag_id = context.get('dag').dag_id
+    task_id = context.get('task_instance').task_id
+    exception = context.get('exception')
+    execution_date = context.get('execution_date')
+    log_url = context.get('task_instance').log_url
 
-#     subject = f"🚨 Airflow Task Failed: {dag_id}.{task_id}"
+    subject = f"🚨 Airflow Task Failed: {dag_id}.{task_id}"
 
-#     html_content = f"""
-#     <h3>🔴 Airflow Task Failure Alert</h3>
-#     <p><b>DAG:</b> {dag_id}</p>
-#     <p><b>Task:</b> {task_id}</p>
-#     <p><b>Execution Date:</b> {execution_date}</p>
-#     <p><b>Error:</b> {exception}</p>
-#     <p><a href="{log_url}">🔗 View Logs</a></p>
-#     """
+    html_content = f"""
+    <h3>🔴 Airflow Task Failure Alert</h3>
+    <p><b>DAG:</b> {dag_id}</p>
+    <p><b>Task:</b> {task_id}</p>
+    <p><b>Execution Date:</b> {execution_date}</p>
+    <p><b>Error:</b> {exception}</p>
+    <p><a href="{log_url}">🔗 View Logs</a></p>
+    """
 
-#     # ✅ Send via Gmail SMTP connection
-#     send_email(
-#         to=["berwin.rayen@prowesstics.com"],
-#         subject=subject,
-#         html_content=html_content,
-#         conn_id="smtp_default"  # Use your working Gmail connection
-#     )
-#     logging.info(f"[send_failure_email] Alert sent for task: {task_id}")
+    # ✅ Send via Gmail SMTP connection
+    send_email(
+        to=["berwin.rayen@prowesstics.com"],
+        subject=subject,
+        html_content=html_content,
+        conn_id="smtp_default"  # Use your working Gmail connection
+    )
+    logging.info(f"[send_failure_email] Alert sent for task: {task_id}")
 
 # ---------------------------------------------------------------------
 # ✅ Optional Fallback Task (triggered when any task fails)
 # ---------------------------------------------------------------------
-# def fallback_reprocess(**kwargs):
-#     logging.warning("[fallback_reprocess] Triggered fallback flow due to failure.")
-#     try:
-#         dag_run = kwargs.get('dag_run')
-#         failed_tasks = [
-#             ti.task_id for ti in dag_run.get_task_instances() if ti.state == 'failed'
-#         ]
-#         logging.info(f"[fallback_reprocess] Failed tasks: {failed_tasks}")
+def fallback_reprocess(**kwargs):
+    logging.warning("[fallback_reprocess] Triggered fallback flow due to failure.")
+    try:
+        dag_run = kwargs.get('dag_run')
+        failed_tasks = [
+            ti.task_id for ti in dag_run.get_task_instances() if ti.state == 'failed'
+        ]
+        logging.info(f"[fallback_reprocess] Failed tasks: {failed_tasks}")
 
-#         html_content = f"""
-#         <h3>⚠️ ETL Fallback Triggered</h3>
-#         <p>Some tasks failed in DAG <b>{dag_run.dag_id}</b>.</p>
-#         <p><b>Failed Tasks:</b> {', '.join(failed_tasks) or 'None'}</p>
-#         <p><b>Run ID:</b> {dag_run.run_id}</p>
-#         <p>Fallback initiated to handle partial recovery.</p>
-#         """
+        html_content = f"""
+        <h3>⚠️ ETL Fallback Triggered</h3>
+        <p>Some tasks failed in DAG <b>{dag_run.dag_id}</b>.</p>
+        <p><b>Failed Tasks:</b> {', '.join(failed_tasks) or 'None'}</p>
+        <p><b>Run ID:</b> {dag_run.run_id}</p>
+        <p>Fallback initiated to handle partial recovery.</p>
+        """
 
-#         send_email(
-#             to=["berwin.rayen@prowesstics.com"],
-#             subject="⚠️ Fallback Triggered – ETL Recovery Started",
-#             html_content=html_content,
-#             conn_id="smtp_default"
-#         )
+        send_email(
+            to=["berwin.rayen@prowesstics.com"],
+            subject="⚠️ Fallback Triggered – ETL Recovery Started",
+            html_content=html_content,
+            conn_id="smtp_default"
+        )
 
-#         # 🧰 You can add your minimal recovery or retry logic here
-#         logging.info("[fallback_reprocess] ✅ Fallback recovery completed successfully.")
-#     except Exception as e:
-#         logging.error(f"[fallback_reprocess] ❌ Fallback failed: {e}")
-#         raise
+        # 🧰 You can add your minimal recovery or retry logic here
+        logging.info("[fallback_reprocess] ✅ Fallback recovery completed successfully.")
+    except Exception as e:
+        logging.error(f"[fallback_reprocess] ❌ Fallback failed: {e}")
+        raise
 
 # ---------------------------------------------------------------------
 # ✅ Default DAG Arguments
@@ -98,7 +104,7 @@ default_args = {
     'retry_delay': timedelta(minutes=5),
     'email_on_failure': False,
     'email_on_retry': False,
-    # 'on_failure_callback': send_failure_email,
+    'on_failure_callback': send_failure_email,
 }
 
 # ---------------------------------------------------------------------
@@ -115,26 +121,26 @@ with DAG(
     start = DummyOperator(task_id="start_pipeline")
 
     #  ---------------- Stage 0 ----------------
-    # create_Schema = PythonOperator(
-    #     task_id='Create_all_schemas',
-    #     python_callable=ensure_all_schemas,
-    #     provide_context=True,
-    #     op_kwargs={
-    #             "conn_id": postgres_conn_id,
-    #             "json_path": json_path,
-    #         },
-    # )
-    # create_log_tables = PythonOperator(
-    #     task_id= "create_log_schema",
-    #     python_callable = get_logtable_details_from_json,
-    #     op_kwargs = {"conn_id": postgres_conn_id , "json_path":json_path},
-    # )
+    create_Schema = PythonOperator(
+        task_id='Create_all_schemas',
+        python_callable=ensure_all_schemas,
+        provide_context=True,
+        op_kwargs={
+                "conn_id": postgres_conn_id,
+                "json_path": json_path,
+            },
+    )
+    create_log_tables = PythonOperator(
+        task_id= "create_log_schema",
+        python_callable = get_logtable_details_from_json,
+        op_kwargs = {"conn_id": postgres_conn_id , "json_path":json_path},
+    )
     # ---------------- Stage 1 ----------------
-    # load_initial_data = PythonOperator(
-    #     task_id='initial_data_load',
-    #     python_callable=load_data_to_postgres_stage,
-    #     provide_context=True,
-    # )
+    load_initial_data = PythonOperator(
+        task_id='initial_data_load',
+        python_callable=load_data_to_postgres_stage,
+        provide_context=True,
+    )
 
     # ---------------- Stage 2 ----------------
     clean_base_data = PythonOperator(
@@ -162,36 +168,30 @@ with DAG(
         python_callable=run_all_iterations,
         provide_context=True,
     )
-
+    append_claim = PythonOperator(
+        task_id = "append_claim",
+        python_callable = append_claim_table
+    )
     # ---------------- Stage 5 (Optional) ----------------
     fuzzy_match = PythonOperator(
         task_id="adding_fuzzy_matching_for_basepr_append",
         python_callable=fuzzy_matching,
         provide_context=True,
     )
-    # append_claim = PythonOperator(
-    #     task_id = "append_claim",
-    #     python_callable = append_claim_table
-    # )
 
-    # merge_claim = PythonOperator(
-    #     task_id = "mergeclaim",
-    #     python_callable = merge_claim_table
-    # )
+    merge_claim = PythonOperator(
+        task_id = "mergeclaim",
+        python_callable = merge_claim_table
+    )
 
     merge_baseprclaim = PythonOperator(
         task_id = "mergebaseprwithclaim",
         python_callable = merge_basepr_with_claim
     )
+
     add_on = PythonOperator(
         task_id="add_on",
         python_callable=addon_column,
-        provide_context=True,
-    )
-
-    new_column_features = PythonOperator(
-        task_id="new_column_features",
-        python_callable=build_policy_features,
         provide_context=True,
     )
 
@@ -201,7 +201,44 @@ with DAG(
         provide_context=True,
     )
 
-      # ---------------- EMAIL ALERT ON FAILURE ----------------
+    new_column_features = PythonOperator(
+        task_id="new_column_features",
+        python_callable=build_policy_features,
+        provide_context=True,
+    )
+
+    prediction_task = PythonOperator(
+        task_id="renewed_notrenewed_pred",
+        python_callable=future_prediction,
+    )
+
+    task_model_prediction = PythonOperator(
+        task_id="reason_for_prediction_table",
+        python_callable=call_pred_data_def,
+    )
+
+    task_policy_status = PythonOperator(
+        task_id="reason_for_policy_status_table",
+        python_callable=call_historic_data_def,
+    )
+
+    task_top3 = PythonOperator(
+        task_id="generate_top_3_reasons",
+        python_callable=top_3_reason,
+    )
+
+    segmentation_task = PythonOperator(
+        task_id="customer_segmenatation",
+        python_callable=cus_segmentation,
+    )
+
+    monitoring_task = PythonOperator(
+        task_id="model_health_monitoring",
+        python_callable=Monitoring,
+    )
+   
+
+    # ---------------- EMAIL ALERT ON FAILURE ----------------
     # send_failure_email = EmailOperator(
     #     task_id='notify_failure_email',
     #     to=["berwin.rayen@prowesstics.com"],
@@ -233,8 +270,10 @@ with DAG(
     # ---------------- DAG Flow ----------------
     
 
-    start >> [clean_base_data , clean_pr_data ] >> append_basepr >> fuzzy_match
-    fuzzy_match >> merge_baseprclaim >> add_on >> update_renewal_task >> new_column_features >> end
+    start >> create_Schema >> create_log_tables >> load_initial_data >> [clean_base_data ,clean_pr_data ,append_claim] >> append_basepr 
+    append_basepr >> merge_claim >> fuzzy_match >> merge_baseprclaim >> add_on >> update_renewal_task 
+    update_renewal_task >> new_column_features >> prediction_task >> task_model_prediction >> task_policy_status 
+    task_policy_status >> task_top3 >> segmentation_task >> monitoring_task >> end
     
     # start >> [clean_base_data , clean_pr_data] >> append_basepr_initial
 

@@ -8,8 +8,12 @@ from sqlalchemy import text
 from sqlalchemy.types import String
 from airflow.models import Variable
 from pathlib import Path
+from sqlalchemy.exc import OperationalError
+from airflow import DAG
+from airflow.operators.python import PythonOperator
 from schema_table_config import get_log_tables, get_schema, get_column_mapping
-
+from config.crypto_utils import get_fernet, encrypt_value, decrypt_value
+from config.config_loader import load_sensitive_columns
 
 # ---------------------------------------------------------------------
 # 🔧 Constants
@@ -76,14 +80,23 @@ def addon_column():
     SOURCE_TABLE = get_latest_claim_merged_with_basepr(engine)
     if not SOURCE_TABLE:
         raise ValueError("❌ No claim_merged_with_basepr table found in metadata!")
-
+    fernet = get_fernet()
+    sensitive_cols = load_sensitive_columns()
+    print("🔐 Fernet initialized & sensitive columns loaded")
     # 2. Read data
     query = f'SELECT * FROM "{SOURCE_SCHEMA}"."{SOURCE_TABLE}"'
     df = pd.read_sql(query, engine)
     print(f"✅ Fetched {len(df)} rows from {SOURCE_SCHEMA}.{SOURCE_TABLE}")
+    # 🔓 Decrypt sensitive columns before cleaning
+    for col in df.columns:
+        if col in sensitive_cols:
+            df[col] = df[col].apply(
+                lambda x: decrypt_value(x, fernet)
+                )
 
+    print(f"🔓 Decrypted sensitive columns for {source_table}")
     # 3. Apply zone mapping
-    # zone_map_df = json.loads(Variable.get(ZONE_TABLE))
+
     df['zone'] = df.apply(
         lambda row: ZONE_TABLE.get(str(row['state']).upper(), row['zone'])
         if pd.isna(row['zone']) else row['zone'],
@@ -151,6 +164,12 @@ def addon_column():
         df["fuel_type"] = df["fuel_type"].replace(['-', '(blank)'], pd.NA)
         df["fuel_type"] = df["fuel_type"].fillna("Petrol")
     print("fuel_type cleaning completed")
+    # 🔐 Re-encrypt sensitive columns before loading
+    for col in df.columns:
+        if col in sensitive_cols:
+            df[col] = df[col].apply(lambda x: encrypt_value(x, fernet))
+
+    print(f"🔐 Re-encrypted sensitive columns before loading {TARGET_SCHEMA}.{target_table}")
     
     # # BOOKED = 1 ⇒ renewed_flag = 1
     # if "booked" in df.columns and "renewed_flag" in df.columns:

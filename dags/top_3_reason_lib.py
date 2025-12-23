@@ -8,7 +8,7 @@ from sqlalchemy import text
 import pandas as pd
 
 from schema_table_config import get_log_tables, get_schema
-
+from customer_segmentation_lib import cus_segmentation
 
 # ----------------------------------------------------------
 # Source / Target Tables
@@ -28,8 +28,8 @@ LOG_SCHEMA = get_schema("log", META_JSON)
 FEATURE_ENG_LOG = get_log_tables("featurelog", META_JSON)
 
 POSTGRES_CONN_ID = "postgres_cloud_prochurn"
-OUTER_CHUNK = 30000
-INNER_CHUNK = 15000
+OUTER_CHUNK = 100000
+INNER_CHUNK = 50000
 
 
 # ----------------------------------------------------------
@@ -47,14 +47,12 @@ def update_top3_metadata(engine):
     sql = f"""
         UPDATE {LOG_SCHEMA}.{FEATURE_ENG_LOG}
         SET
-            top_3_reason = 'YES',
+            top_3_reason = {TARGET_TABLE},
             top_3_reason_cnt = {after_cnt},
-            timestamp = NOW()
-        WHERE last_run_date = (
-            SELECT last_run_date
+        WHERE date = (
+            SELECT date
             FROM {LOG_SCHEMA}.{FEATURE_ENG_LOG}
-            WHERE top_3_reason = 'NO'
-            ORDER BY timestamp DESC
+            ORDER BY date DESC
             LIMIT 1
         );
     """
@@ -237,24 +235,28 @@ def top_3_reason():
 # # ----------------------------------------------------------
 # # DAG
 # # ----------------------------------------------------------
-# default_args = {
-#     "owner": "airflow",
-#     "depends_on_past": False,
-#     "start_date": datetime(2024, 11, 1),
-#     "retries": 1,
-#     "retry_delay": timedelta(minutes=3),
-# }
+default_args = {
+    "owner": "airflow",
+    "depends_on_past": False,
+    "start_date": datetime(2024, 11, 1),
+    "retries": 1,
+    "retry_delay": timedelta(minutes=3),
+}
 
-# with DAG(
-#     dag_id="top_3_reason",
-#     default_args=default_args,
-#     schedule_interval=None,
-#     catchup=False,
-#     tags=["reasons", "churn", "liberty"],
-# ):
-#     task_top3 = PythonOperator(
-#         task_id="generate_top_3_reasons",
-#         python_callable=top_3_reason,
-#     )
+with DAG(
+    dag_id="top_3_reason",
+    default_args=default_args,
+    schedule_interval=None,
+    catchup=False,
+    tags=["reasons", "churn", "liberty"],
+):
+    task_top3 = PythonOperator(
+        task_id="generate_top_3_reasons",
+        python_callable=top_3_reason,
+    )
+    segmentation_task = PythonOperator(
+        task_id="customer_segmenatation",
+        python_callable=cus_segmentation,
+    )
 
-#     task_top3
+    task_top3 >> segmentation_task

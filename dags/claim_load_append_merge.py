@@ -6,12 +6,17 @@ import pandas as pd
 from sqlalchemy import create_engine
 import numpy as np
 import re
+from sqlalchemy.exc import OperationalError
+from airflow import DAG
+from airflow.operators.python import PythonOperator
 from sqlalchemy.types import Text,Integer,Float,DateTime
 from sqlalchemy import text
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 import time, gc
 from pathlib import Path
 from schema_table_config import get_schema,get_log_tables
+from config.crypto_utils import get_fernet, encrypt_value, decrypt_value
+from config.config_loader import load_sensitive_columns
 
 # ---------------------------------------------------------------------
 # 🔧 Constants
@@ -28,7 +33,8 @@ TARGET_TABLE2 = "claim_merge"
 LOG_SCHEMA = get_schema("log", JSON_PATH)
 CLAIM_LOG = get_log_tables("claimlog", JSON_PATH)
 META_DATA = get_log_tables("metadata", JSON_PATH)
-
+fernet = get_fernet()
+sensitive_cols = load_sensitive_columns()
 # ---------------------------------------------------------------------
 # Removed Log Details
 # ---------------------------------------------------------------------
@@ -106,6 +112,9 @@ def append_claim_table():
     engine = pg_hook.get_sqlalchemy_engine()
     with engine.begin() as conn:
         conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{TARGET_SCHEMA}";'))
+    fernet = get_fernet()
+    sensitive_cols = load_sensitive_columns()
+    print("🔐 Fernet initialized & sensitive columns loaded")
 
     print("connection done")
 
@@ -123,7 +132,11 @@ def append_claim_table():
         ORDER BY year ASC
     """
     claim_tables = pd.read_sql(query, engine)
-
+    # 🔓 Decrypt sensitive columns
+    for col in df.columns:
+        if col in sensitive_cols:
+            df[col] = df[col].apply(lambda x: decrypt_value(x, fernet))
+    print(f"🔓 Decrypted sensitive columns for {source_table}")
     if claim_tables.empty:
         print("🚫 No claim tables pending append.")
         return
@@ -145,6 +158,11 @@ def append_claim_table():
 
     # Combine all claims into single claim_append
     final_df = pd.concat(dfs, ignore_index=True)
+    # 🔐 Re-encrypt sensitive columns before loading
+    for col in final_df.columns:
+        if col in sensitive_cols:
+            final_df[col] = final_df[col].apply(lambda x: encrypt_value(x, fernet))
+
     final_df.to_sql("claim_append", schema=TARGET_SCHEMA, con=engine, if_exists="replace", index=False)
 
     print(f"✅ Appended all claim tables into {TARGET_SCHEMA}.claim_append with {len(final_df)} rows.")
@@ -161,6 +179,10 @@ def merge_claim_table():
 
     query = f' SELECT * FROM "{TARGET_SCHEMA}"."{TARGET_TABLE1}"'
     df = pd.read_sql(query,engine)
+    # 🔓 Decrypt sensitive columns before claim merge logic
+    for col in df.columns:
+        if col in sensitive_cols:
+            df[col] = df[col].apply(lambda x: decrypt_value(x, fernet))
 
     def clean_name(name):
         return re.sub(r'[^a-zA-Z0-9]','',str(name)).lower()
@@ -218,6 +240,12 @@ def merge_claim_table():
     
     # capture duplicates before dropping
     removed_dupes = df[df.duplicated(subset=group_cols, keep="last")]
+    removed_dupes = removed_dupes.copy()
+    for col in removed_dupes.columns:
+        if col in sensitive_cols:
+            removed_dupes[col] = removed_dupes[col].apply(
+                lambda x: encrypt_value(x, fernet)
+            )
     log_removed_rows(removed_dupes, "Duplicate claim (keeping latest by settle_date)", engine)
     print("loged the removed rows")
     # Step 6: Sort by 'Settle date' and select the latest row for each group
@@ -245,7 +273,11 @@ def merge_claim_table():
 
     # Step 10: Replace NaN values with empty strings ('') before saving
     df_final = df_final.replace(np.nan, '', regex=True)
-
+    # 🔐 Re-encrypt sensitive columns
+    for col in df_final.columns:
+        if col in sensitive_cols:
+            df_final[col] = df_final[col].apply(lambda x: encrypt_value(x, fernet))
+    print(f"🔐 Re-encrypted sensitive columns before loading {TARGET_SCHEMA}.{TARGET_TABLE1}")
     df_final.to_sql(name=TARGET_TABLE2,schema=TARGET_SCHEMA,con=engine,if_exists="replace",index=False)
     # ✅ Insert or update log entry for claim_merge
     with engine.begin() as conn:
@@ -285,6 +317,10 @@ def merge_basepr_with_claim():
     FINAL_TABLE = "basepr_merged_with_claim"
     # Load claim ONCE - full, since it's smaller and doesn't cause issues
     claim = pd.read_sql(f'SELECT * FROM "{TARGET_SCHEMA}"."{CLAIM_TABLE}"', con=engine)
+    for col in claim.columns:
+        if col in sensitive_cols:
+            claim[col] = claim[col].apply(lambda x: decrypt_value(x, fernet))
+
     for col in ["policy_start_date", "policy_end_date"]:
         if col in claim.columns:
             claim[col] = pd.to_datetime(claim[col], errors="coerce")
@@ -303,6 +339,10 @@ def merge_basepr_with_claim():
             OFFSET {offset} LIMIT {chunk_size}
         """
         base_pr = pd.read_sql(query, con=engine)
+        for col in base_pr.columns:
+            if col in sensitive_cols:
+                base_pr[col] = base_pr[col].apply(lambda x: decrypt_value(x, fernet))
+
         if base_pr.empty:
             break
 
@@ -320,6 +360,10 @@ def merge_basepr_with_claim():
         print(f"✅ Merged chunk at offset {offset} with {len(merged)} rows")
         # ⭐ Add timestamp column
         merged["merge_timestamp"] = datetime.utcnow()
+        # 🔐 Re-encrypt sensitive columns before final write
+        for col in merged.columns:
+            if col in sensitive_cols:
+                merged[col] = merged[col].apply(lambda x: encrypt_value(x, fernet))
         # Write to table in chunks
         write_mode = "replace" if first else "append"
         merged.to_sql(
@@ -355,29 +399,29 @@ def merge_basepr_with_claim():
     engine.dispose()
     gc.collect()
 
-# with DAG(
-#     dag_id = "append_merge_claim_tables_dag",
-#     default_args = {"owner":"airflow","start_date":datetime(2024,1,1)},
-#     schedule_interval = None,
-#     catchup = False,
-#     tags = ["claim","merge"]
-# )as dag:
+with DAG(
+    dag_id = "append_merge_claim_tables_dag",
+    default_args = {"owner":"airflow","start_date":datetime(2024,1,1)},
+    schedule_interval = None,
+    catchup = False,
+    tags = ["claim","merge"]
+)as dag:
     
-#     append_claim = PythonOperator(
-#         task_id = "append_claim_tables", 
-#         python_callable = append_claim_table
-#     )
+    append_claim = PythonOperator(
+        task_id = "append_claim_tables", 
+        python_callable = append_claim_table
+    )
 
-#     merge_claim = PythonOperator(
-#         task_id = "merge_claim_table",
-#         python_callable = merge_claim_table
-#     )
+    merge_claim = PythonOperator(
+        task_id = "merge_claim_table",
+        python_callable = merge_claim_table
+    )
 
-#     final_table = PythonOperator(
-#         task_id = "basepr_append_with_claim",
-#         python_callable = merge_basepr_with_claim
-#     )
+    final_table = PythonOperator(
+        task_id = "basepr_append_with_claim",
+        python_callable = merge_basepr_with_claim
+    )
 
     
 
-#     append_claim >> merge_claim >> final_table
+    append_claim >> merge_claim >> final_table

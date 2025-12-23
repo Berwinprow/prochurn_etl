@@ -8,10 +8,16 @@ from sqlalchemy import text
 from fuzzywuzzy import fuzz
 from airflow.models import Variable
 import json
+from sqlalchemy.exc import OperationalError
+from airflow import DAG
+from airflow.operators.python import PythonOperator
 from tenacity import retry, stop_after_attempt, wait_exponential
 from sqlalchemy.exc import SQLAlchemyError
 from pathlib import Path
 from schema_table_config import get_schema, get_log_tables
+from config.crypto_utils import get_fernet, encrypt_value, decrypt_value
+from config.config_loader import load_sensitive_columns
+
 # ---------------------------------------------------------------------
 # 🔧 Constants
 # ---------------------------------------------------------------------
@@ -20,7 +26,7 @@ JSON_PATH = str(DAGS_DIR / "config" / "schema_metadata_config.json")
 SOURCE_SCHEMA = get_schema("agg",JSON_PATH)
 BASE_TABLE = "base_2022"
 PR_TABLE = "pr_2022"
-TARGET_SCHEMA = get_schema("agg",JSON_PATH)# both source and target has same schema name
+TARGET_SCHEMA = get_schema("agg",JSON_PATH) # both source and target has same schema name
 TARGET_TABLE = "finalwith_2022_pr"
 LOG_TABLE = "removed_duplicate_policies"
 log_schema= get_schema("log",JSON_PATH)
@@ -45,59 +51,6 @@ CORRECTED_CHASSIS_ENGINE_NO="corrected_chassis_no"
 CORRECT_INSURANCE_NAME="corrected_name"
 VECHICAL_SEGMENT = "vehicle_segment"
 
-# ---------------------------------------------------------------------
-# Defining the Sensitive Columns
-# ---------------------------------------------------------------------
-SENSITIVE_COLUMNS = json.loads(Variable.get("sensitive_columns", default_var="[]"))
-
-# ENCRYPTION_KEY = Variable.get("encryption_key")
-# FERNET = Fernet(ENCRYPTION_KEY)
-
-# def decrypt_column(value, fernet):
-#     try:
-#         if pd.isna(value) or not isinstance(value, str) or value.strip() == "":
-#             return value
-#         return fernet.decrypt(base64.urlsafe_b64decode(value.encode())).decode()
-#     except Exception:
-#         return value
-
-# # 🔐 Encryption
-# def encrypt_column(value, fernet):
-#     try:
-#         if pd.isna(value) or not isinstance(value, str) or value.strip() == "":
-#             return value
-#         return base64.urlsafe_b64encode(fernet.encrypt(value.encode())).decode()
-#     except Exception:
-#         return value
-
-# def decrypt_chunk(df):
-#     """Decrypt sensitive columns in dataframe."""
-#     for col in SENSITIVE_COLUMNS:
-#         if col in df.columns:
-#             df[col] = df[col].apply(lambda x: FERNET.decrypt(x.encode()).decode() if pd.notna(x) else x)
-#     return df
-
-# def encrypt_chunk(df):
-#     """Encrypt sensitive columns in dataframe."""
-#     for col in SENSITIVE_COLUMNS:
-#         if col in df.columns:
-#             df[col] = df[col].apply(lambda x: FERNET.encrypt(str(x).encode()).decode() if pd.notna(x) else x)
-#     return df
-
-# @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-# def safe_read_sql(query, engine):
-#     """Read SQL with decryption."""
-#     df = pd.read_sql(query, engine)     
-#     return decrypt_chunk(df)
-
-# @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-# def safe_to_sql(df, *args, **kwargs):
-#     """Write SQL with encryption."""
-#     if df.empty:
-#         print("⚠️ Skipping empty dataframe write.")
-#         return
-#     df = encrypt_chunk(df)
-#     return df.to_sql(*args, **kwargs)
 
 # ---------------------------------------------------------------------
 # Create log Table 
@@ -177,6 +130,10 @@ def append_base_pr_initial():
     with engine.begin() as conn:
         conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {TARGET_SCHEMA};"))
 
+    fernet = get_fernet()
+    sensitive_cols = load_sensitive_columns()
+    print("🔐 Fernet initialized & sensitive columns loaded")
+
     # ✅ Extract Data from `base` and `pr`
     query_base = f'SELECT * FROM "{SOURCE_SCHEMA}"."{BASE_TABLE}"'
     query_pr = f'SELECT * FROM "{SOURCE_SCHEMA}"."{PR_TABLE}"'
@@ -184,15 +141,18 @@ def append_base_pr_initial():
     df_base = pd.read_sql(query_base, engine)
     df_pr = pd.read_sql(query_pr, engine)
 
-    # for col in SENSITIVE_COLUMNS:
-    #             if col in df_base.columns:
-    #                 df_base[col] = df_base[col].astype(str).apply(lambda x: decrypt_column(x, FERNET))
-    #                 print("🔓 base Decryption done")
-    # for col in SENSITIVE_COLUMNS:
-    #             if col in df_pr.columns:
-    #                 df_pr[col] = df_pr[col].astype(str).apply(lambda x: decrypt_column(x, FERNET))
-    #                 print("🔓 PR Decryption done")
-    
+    # 🔓 Decrypt sensitive columns (base)
+    for col in df_base.columns:
+        if col in sensitive_cols:
+            df_base[col] = df_base[col].apply(lambda x: decrypt_value(x, fernet))
+    print("🔓 Base table decrypted")
+
+    # 🔓 Decrypt sensitive columns (pr)
+    for col in df_pr.columns:
+        if col in sensitive_cols:
+            df_pr[col] = df_pr[col].apply(lambda x: decrypt_value(x, fernet))
+    print("🔓 PR table decrypted")
+   
     
     print(f"📂 Extracted {len(df_base)} records from `{SOURCE_SCHEMA}.{BASE_TABLE}`.")
     print(f"📂 Extracted {len(df_pr)} records from `{SOURCE_SCHEMA}.{PR_TABLE}`.")
@@ -426,14 +386,26 @@ def append_base_pr_initial():
     removed_count = before_dedup - len(df)
     print(f"📊 Removed {removed_count} duplicate policies, keeping latest month.")
 
+    for col in removed_duplicates.columns:
+        if col in sensitive_cols:
+            removed_duplicates[col] = removed_duplicates[col].apply(
+                lambda x: encrypt_value(x, fernet)
+            )
+
     # ✅ Log Removed Duplicates
     removed_duplicates = pd.concat([duplicate_policies, duplicate_chassis])
     if not removed_duplicates.empty:
         safe_to_sql_log(removed_duplicates, LOG_TABLE, log_schema, engine)
         print(f"⚠️ Logged {len(removed_duplicates)} removed duplicates into `{log_schema}.{LOG_TABLE}`.")
     removed_rows = len(removed_duplicates)
-    
- # ✅ Load Cleaned Data into Target Table
+    # 🔐 Re-encrypt sensitive columns before loading final table
+    for col in df.columns:
+        if col in sensitive_cols:
+            df[col] = df[col].apply(lambda x: encrypt_value(x, fernet))
+
+    print(f"🔐 Re-encrypted sensitive columns before loading {TARGET_SCHEMA}.{TARGET_TABLE}")
+
+    # ✅ Load Cleaned Data into Target Table
     df.to_sql(name=TARGET_TABLE, schema=TARGET_SCHEMA, con=engine, if_exists="replace", index=False)
     row_count = len(df)
     print(f"✅ Appended data successfully loaded into `{TARGET_SCHEMA}.{TARGET_TABLE}`.")
@@ -443,14 +415,14 @@ def append_base_pr_initial():
     
 
 # ✅ Define DAG
-# with DAG(
-#     dag_id="bap",
-#     default_args={"owner": "airflow", "start_date": datetime(2024, 2, 10)},
-#     schedule_interval=None,
-#     catchup=False
-# ) as dag:
+with DAG(
+    dag_id="bap",
+    default_args={"owner": "airflow", "start_date": datetime(2024, 2, 10)},
+    schedule_interval=None,
+    catchup=False
+) as dag:
 
-#     append_task = PythonOperator(task_id="append_base_pr", python_callable=append_base_pr)
+    append_task = PythonOperator(task_id="append_base_pr", python_callable=append_base_pr_initial)
    
 
-#     append_task 
+    append_task 

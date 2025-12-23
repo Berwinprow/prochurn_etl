@@ -10,6 +10,8 @@ from sqlalchemy.exc import PendingRollbackError, OperationalError
 import time, gc
 from pathlib import Path
 from schema_table_config import get_column_mapping, get_log_tables, get_schema
+from config.crypto_utils import get_fernet, encrypt_value, decrypt_value
+from config.config_loader import load_sensitive_columns
 
 DAGS_DIR = Path(__file__).resolve().parent
 JSON_PATH = str(DAGS_DIR / "config" / "schema_metadata_config.json")
@@ -126,6 +128,10 @@ def build_policy_features():
     engine = pg_hook.get_sqlalchemy_engine()
     with engine.begin() as conn:
         conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {TARGET_SCHEMA};"))
+    fernet = get_fernet()
+    sensitive_cols = load_sensitive_columns()
+    print("🔐 Fernet initialized & sensitive columns loaded")
+
     SOURCE_TABLE = get_latest_addons_table(engine)
     # SOURCE_TABLE = "basepr_merged_with_claim"
     if not SOURCE_TABLE:
@@ -145,7 +151,11 @@ def build_policy_features():
     """
     df = pd.read_sql(text(query), con=engine)
     print(f"datas loaded to query")
-
+    # 🔓 Decrypt sensitive columns
+    for col in df.columns:
+        if col in sensitive_cols:
+            df[col] = df[col].apply(lambda x: decrypt_value(x, fernet))
+    print(f"🔓 Decrypted sensitive columns for {source_table}")
     # Dates, dtypes & ordering
     df['policy_start_date'] = pd.to_datetime(df['policy_start_date'])
     df['policy_end_date']   = pd.to_datetime(df['policy_end_date'])
@@ -430,7 +440,12 @@ def build_policy_features():
     pricing_catalog.columns=["_".join(col).rstrip("_") if isinstance(col, tuple) else col for col in pricing_catalog.columns]
 
     df =pd.merge(df,pricing_catalog,how="left",on= pricing_grp_col)
-   
+    # 🔐 Re-encrypt sensitive columns before loading
+    for col in df.columns:
+        if col in sensitive_cols:
+            df[col] = df[col].apply(lambda x: encrypt_value(x, fernet))
+
+    print(f"🔐 Re-encrypted sensitive columns before loading {TARGET_SCHEMA}.{target_table}")
     print(f"✅ Pricing catalog columns added: {[c for c in pricing_catalog.columns if c not in pricing_grp_col]}")
 
     try:
@@ -492,23 +507,25 @@ def build_policy_features():
 
 
 
-# with DAG(
-#     dag_id="creating_new_column_on_baseprclaim",
-#     default_args={"owner": "airflow", "start_date": datetime(2024, 1, 1)},
-#     schedule_interval=None,
-#     catchup=False,
-#     tags=["policy", "new", "column"]
-# ) as dag:
+with DAG(
+    dag_id="creating_new_column_on_baseprclaim",
+    default_args={"owner": "airflow", "start_date": datetime(2024, 1, 1)},
+    schedule_interval=None,
+    catchup=False,
+    tags=["policy", "new", "column"]
+) as dag:
 
-#     new_column_on_finaltable = PythonOperator(
-#         task_id="added_column_on_finaltable",
-#         python_callable=build_policy_features
-#     )
+    update_renewal_task = PythonOperator(
+        task_id="renewal_rate_update",
+        python_callable=update_renewal_rate_status,
+        provide_context=True,
+    )
 
-#     build_policy_features
+    new_column_features = PythonOperator(
+        task_id="new_column_features",
+        python_callable=build_policy_features,
+        provide_context=True,
+    )
 
-#         task_id="added_column_on_finaltable",
-#         python_callable=build_policy_features
-#     )
+    update_renewal_task >> new_column_features
 
-#     build_policy_features

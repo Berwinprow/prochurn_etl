@@ -63,12 +63,12 @@
             "count_of_new_col": "BIGINT",
             "future_pred": "TEXT",
             "count_of_future_pred": "BIGINT",
-            "renewed_policy_count": "BIGINT",
+            "not_renewed_policy_name": "TEXT",
             "non_renewed_policy_count": "BIGINT",
             "segmentation": "TEXT",
             "segmentation_count": "BIGINT",
-            "reason": "TEXT",
-            "reason_count": "BIGINT"
+            "top_3_reason": "TEXT",
+            "top_3_reason_cnt": "BIGINT"
         }
     }
 }

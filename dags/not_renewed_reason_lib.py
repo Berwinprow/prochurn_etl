@@ -29,8 +29,8 @@ LOG_SCHEMA = get_schema("log", META_JSON)
 FEATURE_ENG_LOG = get_log_tables("featurelog", META_JSON)
 
 POSTGRES_CONN_ID = "postgres_cloud_prochurn"
-OUTER_CHUNK = 100000
-INNER_CHUNK = 50000
+OUTER_CHUNK = 200000
+INNER_CHUNK = 100000
 
 
 # --------------------------------------------------------------------
@@ -43,14 +43,12 @@ def update_reason_metadata(engine, count_rows):
     sql = f"""
         UPDATE {LOG_SCHEMA}.{FEATURE_ENG_LOG}
         SET
-            reason_done = 'YES',
-            removal_reason_cnt = {count_rows},
-            timestamp = NOW()
-        WHERE last_run_date = (
-            SELECT last_run_date
+            not_renewed_policy_name = {TARGET_TABLE_2},
+            non_renewed_policy_count = {count_rows},
+        WHERE date = (
+            SELECT date
             FROM {LOG_SCHEMA}.{FEATURE_ENG_LOG}
-            WHERE reason_done = 'NO'
-            ORDER BY timestamp DESC
+            ORDER BY date DESC
             LIMIT 1
         );
     """
@@ -266,30 +264,30 @@ def call_historic_data_def():
 # # --------------------------------------------------------------------
 # # DAG
 # # --------------------------------------------------------------------
-# default_args = {
-#     "owner": "airflow",
-#     "depends_on_past": False,
-#     "start_date": datetime(2024, 11, 1),
-#     "retries": 1,
-#     "retry_delay": timedelta(minutes=3),
-# }
+default_args = {
+    "owner": "airflow",
+    "depends_on_past": False,
+    "start_date": datetime(2024, 11, 1),
+    "retries": 1,
+    "retry_delay": timedelta(minutes=3),
+}
 
-# with DAG(
-#     dag_id="not_renewed_reason_generator",
-#     default_args=default_args,
-#     schedule_interval=None,
-#     catchup=False,
-#     tags=["reasons", "churn", "liberty"],
-# ) as dag:
+with DAG(
+    dag_id="not_renewed_reason_generator",
+    default_args=default_args,
+    schedule_interval=None,
+    catchup=False,
+    tags=["reasons", "churn", "liberty"],
+) as dag:
 
-#     task_model_prediction = PythonOperator(
-#         task_id="reason_for_prediction_table",
-#         python_callable=call_pred_data_def,
-#     )
+    task_model_prediction = PythonOperator(
+        task_id="reason_for_prediction_table",
+        python_callable=call_pred_data_def,
+    )
 
-#     task_policy_status = PythonOperator(
-#         task_id="reason_for_policy_status_table",
-#         python_callable=call_historic_data_def,
-#     )
+    task_policy_status = PythonOperator(
+        task_id="reason_for_policy_status_table",
+        python_callable=call_historic_data_def,
+    )
 
-#     [task_model_prediction, task_policy_status]
+    [task_model_prediction, task_policy_status]

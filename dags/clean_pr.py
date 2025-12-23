@@ -10,6 +10,11 @@ from sqlalchemy import text
 from sqlalchemy.types import String
 from pathlib import Path
 from schema_table_config import get_column_mapping, get_log_tables, get_schema
+from config.crypto_utils import get_fernet, encrypt_value, decrypt_value
+from config.config_loader import load_sensitive_columns
+from sqlalchemy.exc import OperationalError
+from airflow import DAG
+from airflow.operators.python import PythonOperator
 
 # ---------------------------------------------------------------------
 # 🔧 Constants
@@ -145,6 +150,12 @@ def clean_and_load_pr_data():
         conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{TARGET_SCHEMA}";'))
         conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{LOG_SCHEMA}";'))
 
+    # 🔐 Encryption setup (once per DAG run)
+    fernet = get_fernet()
+    sensitive_cols = load_sensitive_columns()
+
+    print("🔐 Fernet initialized & sensitive columns loaded")
+
     for source_table in source_tables:
 
         # ✅ Extract data from `SOURCE_TABLE`
@@ -152,6 +163,15 @@ def clean_and_load_pr_data():
         df = pd.read_sql(query, engine)
         initial_count = len(df)
         print(f"📂 Extracted {initial_count} records from `{SOURCE_SCHEMA}.{source_table}`.")
+
+        # 🔓 Decrypt sensitive columns before cleaning
+        for col in df.columns:
+            if col in sensitive_cols:
+                df[col] = df[col].apply(
+                    lambda x: decrypt_value(x, fernet)
+                )
+
+        print(f"🔓 Decrypted sensitive columns for {source_table}")
 
         # ✅ Apply Column Mapping
         original_columns = set(df.columns)
@@ -289,6 +309,14 @@ def clean_and_load_pr_data():
             print(f"⚠️ Removed rows logged into `{LOG_SCHEMA}.{log_table}` with timestamp `{pipeline_run_time}`.")
             
         df["last_runned_date"] = datetime.utcnow()
+
+        # 🔐 Re-encrypt sensitive columns before loading
+        for col in df.columns:
+            if col in sensitive_cols:
+                df[col] = df[col].apply(lambda x: encrypt_value(x, fernet))
+
+        print(f"🔐 Re-encrypted sensitive columns before loading {TARGET_SCHEMA}.{target_table}")
+
         # ✅ Step 8: Load cleaned data into `bi_dwh`
         target_table = f"{source_table}"
         df.to_sql(name=target_table, schema=TARGET_SCHEMA, con=engine, if_exists="replace", index=False, dtype={POLICY_NUMBER_COLUMN: String})
@@ -311,12 +339,12 @@ def clean_and_load_pr_data():
         print(f"data successfully updated to {META_TABLE}")
 
 
-# with DAG(
-#     dag_id="clean_pr_file_data",
-#     default_args={"owner": "airflow", "start_date": datetime(2024, 2, 10)}, 
-#     schedule_interval=None, catchup=False) as dag:
-#     clean_pr_data = PythonOperator(
-#         task_id="clean_pr_file_data", 
-#         python_callable=clean_and_load_pr_data
-#         )
-#     clean_pr_data
+with DAG(
+    dag_id="clean_pr_file_data",
+    default_args={"owner": "airflow", "start_date": datetime(2024, 2, 10)}, 
+    schedule_interval=None, catchup=False) as dag:
+    clean_pr_data = PythonOperator(
+        task_id="clean_pr_file_data", 
+        python_callable=clean_and_load_pr_data
+        )
+    clean_pr_data

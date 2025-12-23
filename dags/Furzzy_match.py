@@ -16,6 +16,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.exc import OperationalError, PendingRollbackError
 from pathlib import Path
 from schema_table_config import get_schema, get_log_tables
+from config.crypto_utils import get_fernet, encrypt_value, decrypt_value
+from config.config_loader import load_sensitive_columns
+
 # ============================================================
 # 🔧 Constants
 # ============================================================
@@ -23,7 +26,6 @@ DAG_DIR = Path(__file__).resolve().parent
 JSON_PATH = str(DAG_DIR / "config" / "schema_metadata_config.json")
 SOURCE_SCHEMA = get_schema("agg", JSON_PATH) 
 TARGET_SCHEMA = get_schema("agg", JSON_PATH)
-#TARGET_TABLE = "final_renewed_policies_22_pr"
 LOG_TABLE = "removed_duplicate_policies"
 LOG_SCHEMA= get_schema("log", JSON_PATH)
 META_TABLE = get_log_tables("metadata", JSON_PATH)
@@ -116,12 +118,22 @@ def fuzzy_matching():
         return
     value_after_underscore = SOURCE_TABLE.split("_", 1)[1]
     TARGET_TABLE = "final_renewed_policies_" + value_after_underscore
+    fernet = get_fernet()
+    sensitive_cols = load_sensitive_columns()
+    print("🔐 Fernet initialized & sensitive columns loaded")
 
     query = f"""
         SELECT * FROM "{SOURCE_SCHEMA}"."{SOURCE_TABLE}" 
         ORDER BY corrected_chassis_no, corrected_name, policy_start_date
     """
     df = pd.read_sql(query, engine)
+
+    # 🔓 Decrypt sensitive columns before fuzzy logic
+    for col in df.columns:
+        if col in sensitive_cols:
+            df[col] = df[col].apply(lambda x: decrypt_value(x, fernet))
+
+    print(f"🔓 Decrypted sensitive columns for {SOURCE_TABLE}")
 
     if df.empty:
         print("⚠️ No records found!")
@@ -302,8 +314,12 @@ def fuzzy_matching():
     df["New Customers"] = df["new_customer"].apply(lambda x: "Yes" if x else "No")
 
     print("✅ customer_tenure & renewal status calculated.")
-   
+    # 🔐 Re-encrypt sensitive columns before loading final table
+    for col in df.columns:
+        if col in sensitive_cols:
+            df[col] = df[col].apply(lambda x: encrypt_value(x, fernet))
 
+    print(f"🔐 Re-encrypted sensitive columns before loading {TARGET_SCHEMA}.{TARGET_TABLE}")
 
     try:
         # Dispose the old possibly broken connection pool

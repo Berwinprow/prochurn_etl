@@ -26,8 +26,8 @@ LOG_SCHEMA = get_schema("log", META_JSON)
 FEATURE_ENG_LOG = get_log_tables("featurelog", META_JSON)
 
 POSTGRES_CONN_ID = "postgres_cloud_prochurn"
-OUTER_CHUNK = 10000
-INNER_CHUNK = 15000
+OUTER_CHUNK = 100000
+INNER_CHUNK = 50000
 
 
 # ----------------------------------------------------------
@@ -49,14 +49,12 @@ def update_segment_metadata(engine):
     sql = f"""
         UPDATE {LOG_SCHEMA}.{FEATURE_ENG_LOG}
         SET
-            segment_done = 'YES',
-            segment_cnt = {after_cnt},
-            timestamp = NOW()
-        WHERE last_run_date = (
-            SELECT last_run_date
+            segmentation = {TARGET_TABLE},
+            segmentation_count = {after_cnt},
+        WHERE date = (
+            SELECT date
             FROM {LOG_SCHEMA}.{FEATURE_ENG_LOG}
-            WHERE segment_done = 'NO'
-            ORDER BY timestamp DESC
+            ORDER BY date DESC
             LIMIT 1
         );
     """
@@ -236,25 +234,25 @@ def cus_segmentation():
 # ----------------------------------------------------------
 # DAG
 # ----------------------------------------------------------
-# default_args = {
-#     "owner": "airflow",
-#     "depends_on_past": False,
-#     "start_date": datetime(2024, 12, 1),
-#     "retries": 1,
-#     "retry_delay": timedelta(minutes=2),
-# }
+default_args = {
+    "owner": "airflow",
+    "depends_on_past": False,
+    "start_date": datetime(2024, 12, 1),
+    "retries": 1,
+    "retry_delay": timedelta(minutes=2),
+}
 
-# with DAG(
-#     dag_id="segment_customer_basedon_top_3_reason",
-#     default_args=default_args,
-#     schedule_interval=None,
-#     catchup=False,
-#     tags=["segmentation", "liberty"],
-# ) as dag:
+with DAG(
+    dag_id="segment_customer_basedon_top_3_reason",
+    default_args=default_args,
+    schedule_interval=None,
+    catchup=False,
+    tags=["segmentation", "liberty"],
+) as dag:
 
-#     segmentation_task = PythonOperator(
-#         task_id="customer_segmenatation",
-#         python_callable=cus_segmentation,
-#     )
+    segmentation_task = PythonOperator(
+        task_id="customer_segmenatation",
+        python_callable=cus_segmentation,
+    )
 
-#     segmentation_task
+    segmentation_task

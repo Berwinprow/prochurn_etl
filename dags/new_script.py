@@ -1,2 +1,0 @@
-def new():
-    print("hello")
