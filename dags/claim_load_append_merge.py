@@ -33,8 +33,7 @@ TARGET_TABLE2 = "claim_merge"
 LOG_SCHEMA = get_schema("log", JSON_PATH)
 CLAIM_LOG = get_log_tables("claimlog", JSON_PATH)
 META_DATA = get_log_tables("metadata", JSON_PATH)
-fernet = get_fernet()
-sensitive_cols = load_sensitive_columns()
+
 # ---------------------------------------------------------------------
 # Removed Log Details
 # ---------------------------------------------------------------------
@@ -132,11 +131,6 @@ def append_claim_table():
         ORDER BY year ASC
     """
     claim_tables = pd.read_sql(query, engine)
-    # 🔓 Decrypt sensitive columns
-    for col in df.columns:
-        if col in sensitive_cols:
-            df[col] = df[col].apply(lambda x: decrypt_value(x, fernet))
-    print(f"🔓 Decrypted sensitive columns for {source_table}")
     if claim_tables.empty:
         print("🚫 No claim tables pending append.")
         return
@@ -145,7 +139,11 @@ def append_claim_table():
     for _, row in claim_tables.iterrows():
         table_name = row["table_name"]
         df = pd.read_sql(f'SELECT * FROM "{SOURCE_SCHEMA}"."{table_name}"', engine)
-
+        # 🔓 Decrypt sensitive columns for this claim table
+        for col in df.columns:
+            if col in sensitive_cols:
+                df[col] = df[col].apply(lambda x: decrypt_value(x, fernet))
+        print(f"decrypt done in {table_name}")
         # Fix column renaming if required
         if "status_of_claim.1" in df.columns and "updated_status" not in df.columns:
             df.rename(columns={"status_of_claim.1": "updated_status"}, inplace=True)
@@ -162,7 +160,7 @@ def append_claim_table():
     for col in final_df.columns:
         if col in sensitive_cols:
             final_df[col] = final_df[col].apply(lambda x: encrypt_value(x, fernet))
-
+    print("encrpted the final data getting inside db")
     final_df.to_sql("claim_append", schema=TARGET_SCHEMA, con=engine, if_exists="replace", index=False)
 
     print(f"✅ Appended all claim tables into {TARGET_SCHEMA}.claim_append with {len(final_df)} rows.")
@@ -176,7 +174,9 @@ def append_claim_table():
 def merge_claim_table():
     pg_hook = PostgresHook(postgres_conn_id = POSTGRES_CONN_ID)
     engine = pg_hook.get_sqlalchemy_engine()
-
+    fernet = get_fernet()
+    sensitive_cols = load_sensitive_columns()
+    print("🔐 Fernet initialized & sensitive columns loaded")
     query = f' SELECT * FROM "{TARGET_SCHEMA}"."{TARGET_TABLE1}"'
     df = pd.read_sql(query,engine)
     # 🔓 Decrypt sensitive columns before claim merge logic
@@ -289,11 +289,11 @@ def merge_claim_table():
                 merged_count = :row_count,
                 last_updated_ts = :ts
         """), {
-            "row_count": len(df),
+            "row_count": len(df_final),
             "ts": datetime.utcnow()
         })
 
-    print(f"✅ {len(df)} rows merged into {TARGET_SCHEMA}.claim_merge")
+    print(f"✅ {len(df_final)} rows merged into {TARGET_SCHEMA}.claim_merge")
 
 # ---------------------------------------------------------------------
 # Merging Base Pr Table With Claim Tables 
@@ -304,7 +304,8 @@ def merge_basepr_with_claim():
     pg_hook = PostgresHook(postgres_conn_id = POSTGRES_CONN_ID)
     engine = pg_hook.get_sqlalchemy_engine()
     print("engine connection done")
-
+    fernet = get_fernet()
+    sensitive_cols = load_sensitive_columns()
     engine.dispose()
     time.sleep(2)
     hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
@@ -389,7 +390,7 @@ def merge_basepr_with_claim():
                 cnt = :row_count,
                 last_updated_ts = :ts
         """), {
-            "row_count": len(merged),
+            "row_count": total_rows,
             "ts": datetime.utcnow()
         })
 

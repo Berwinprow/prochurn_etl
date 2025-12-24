@@ -49,8 +49,8 @@ def update_segment_metadata(engine):
     sql = f"""
         UPDATE {LOG_SCHEMA}.{FEATURE_ENG_LOG}
         SET
-            segmentation = {TARGET_TABLE},
-            segmentation_count = {after_cnt},
+            segmentation = '{TARGET_TABLE}',
+            segmentation_count = {after_cnt}
         WHERE date = (
             SELECT date
             FROM {LOG_SCHEMA}.{FEATURE_ENG_LOG}

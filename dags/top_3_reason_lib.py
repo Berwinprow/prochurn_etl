@@ -47,8 +47,8 @@ def update_top3_metadata(engine):
     sql = f"""
         UPDATE {LOG_SCHEMA}.{FEATURE_ENG_LOG}
         SET
-            top_3_reason = {TARGET_TABLE},
-            top_3_reason_cnt = {after_cnt},
+            top_3_reason = '{TARGET_TABLE}',
+            top_3_reason_cnt = {after_cnt}
         WHERE date = (
             SELECT date
             FROM {LOG_SCHEMA}.{FEATURE_ENG_LOG}
