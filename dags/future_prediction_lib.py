@@ -129,12 +129,11 @@ def future_prediction():
 
     pg_hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
     read_engine = pg_hook.get_sqlalchemy_engine()
-
-    with read_engine.begin() as conn:
-        conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {TARGET_SCHEMA}"))
     fernet = get_fernet()
     sensitive_cols = load_sensitive_columns()
     print("🔐 Fernet initialized & sensitive columns loaded")
+    with read_engine.begin() as conn:
+        conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {TARGET_SCHEMA}"))
     df = pd.read_sql(
         text(
             f"SELECT * FROM {SOURCE_SCHEMA}.{SOURCE_TABLE} "
@@ -148,7 +147,7 @@ def future_prediction():
     for col in df.columns:
         if col in sensitive_cols:
             df[col] = df[col].apply(lambda x: decrypt_value(x, fernet))
-    print(f"🔓 Decrypted sensitive columns for {source_table}")
+    print(f"🔓 Decrypted sensitive columns for {SOURCE_TABLE}")
 
     selected_columns = ['add_on_adoption', 'vehicle_age', 'applicable_discount_with_ncb', 'approved', 'avg_premium_hist', 'before_gst_add_on_gwp',
                         'business_type', 'claim_happened_flag', 'claim_approval_rate', 'cleaned_new_branch_name', 'cleaned_chassis_no', 'cleaned_engine_no', 

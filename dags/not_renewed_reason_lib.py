@@ -8,7 +8,8 @@ from sqlalchemy import text
 import pandas as pd
 
 from schema_table_config import get_log_tables, get_schema
-
+from config.crypto_utils import get_fernet, encrypt_value, decrypt_value
+from config.config_loader import load_sensitive_columns
 
 # --------------------------------------------------------------------
 # Source / Target Tables
@@ -175,7 +176,9 @@ def call_pred_data_def():
 
     hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
     engine = hook.get_sqlalchemy_engine()
-
+    fernet = get_fernet()
+    sensitive_cols = load_sensitive_columns()
+    print("🔐 Fernet initialized & sensitive columns loaded")
     # ---------------------------
     # Step 1: Load Data
     # ---------------------------
@@ -184,7 +187,11 @@ def call_pred_data_def():
     )
     df = pd.read_sql(query, con=engine)
     print(f"✅ Loaded {len(df)} rows from {SOURCE_TABLE_1}")
-
+    # 🔓 Decrypt sensitive columns
+    for col in df.columns:
+        if col in sensitive_cols:
+            df[col] = df[col].apply(lambda x: decrypt_value(x, fernet))
+    print(f"🔓 Decrypted sensitive columns for {SOURCE_TABLE_1}")
     # Apply the function
     df["Not Renewed Reasons"] = df.apply(
         lambda r: reason_for_churn(r, "predicted_status"),
@@ -197,7 +204,14 @@ def call_pred_data_def():
         df.columns.str.strip().str.lower().str.replace(" ", "_")
     )
     print("📝 Normalized column names in df")
+    # 🔐 Re-encrypt sensitive columns before loading
+    for col in df.columns:
+        if col in sensitive_cols:
+            df[col] = df[col].apply(
+                lambda x: encrypt_value(x, fernet)
+            )
 
+    print(f"🔐 Re-encrypted sensitive columns before loading {TARGET_SCHEMA}.{TARGET_TABLE_1}")
     load_chunked(df, TARGET_TABLE_1, TARGET_SCHEMA)
 
     print(
@@ -214,13 +228,19 @@ def call_historic_data_def():
 
     hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
     engine = hook.get_sqlalchemy_engine()
-
+    fernet = get_fernet()
+    sensitive_cols = load_sensitive_columns()
+    print("🔐 Fernet initialized & sensitive columns loaded")
     # ---------------------------
     # Step 1: Load Data
     # ---------------------------
     query = f"SELECT * FROM {SOURCE_SCHEMA}.{SOURCE_TABLE_2} WHERE policy_status = 'Not Renewed';"
     df = pd.read_sql(query, con=engine)
-
+    # 🔓 Decrypt sensitive columns
+    for col in df.columns:
+        if col in sensitive_cols:
+            df[col] = df[col].apply(lambda x: decrypt_value(x, fernet))
+    print(f"🔓 Decrypted sensitive columns for {SOURCE_TABLE_2}")
     print(f"✅ Loaded {len(df)} rows from {SOURCE_TABLE_2}")
 
     # Step 2: Ensure numeric columns are numeric
@@ -250,6 +270,14 @@ def call_historic_data_def():
     df.columns = (
         df.columns.str.strip().str.lower().str.replace(" ", "_")
     )
+    # 🔐 Re-encrypt sensitive columns before loading
+    for col in df.columns:
+        if col in sensitive_cols:
+            df[col] = df[col].apply(
+                lambda x: encrypt_value(x, fernet)
+            )
+
+    print(f"🔐 Re-encrypted sensitive columns before loading {TARGET_SCHEMA}.{TARGET_TABLE_2}")
     load_chunked(df, TARGET_TABLE_2, TARGET_SCHEMA)
 
     print(
@@ -257,8 +285,8 @@ def call_historic_data_def():
         f"{len(df)} in {TARGET_TABLE_2}"
     )
 
-    # # ⭐ Update metadata for prediction reason table
-    # update_reason_metadata(engine, len(df))
+    # ⭐ Update metadata for prediction reason table
+    update_reason_metadata(engine, len(df))
 
 
 # # --------------------------------------------------------------------

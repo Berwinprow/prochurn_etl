@@ -8,7 +8,8 @@ from sqlalchemy import text
 import pandas as pd
 
 from schema_table_config import get_log_tables, get_schema
-from customer_segmentation_lib import cus_segmentation
+from config.crypto_utils import get_fernet, encrypt_value, decrypt_value
+from config.config_loader import load_sensitive_columns
 
 # ----------------------------------------------------------
 # Source / Target Tables
@@ -108,7 +109,9 @@ def top_3_reason():
 
     hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
     engine = hook.get_sqlalchemy_engine()
-
+    fernet = get_fernet()
+    sensitive_cols = load_sensitive_columns()
+    print("🔐 Fernet initialized & sensitive columns loaded")
     # ---------------------------
     # STEP 1: Load Historical Table
     # ---------------------------
@@ -116,7 +119,14 @@ def top_3_reason():
     df_hist = pd.read_sql(query_hist, con=engine)
 
     print(f"📌 Loaded Historical Table: {len(df_hist)} rows")
+    # 🔓 Decrypt sensitive columns before cleaning
+    for col in df_hist.columns:
+        if col in sensitive_cols:
+            df_hist[col] = df_hist[col].apply(
+                    lambda x: decrypt_value(x, fernet)
+            )
 
+    print(f"🔓 Decrypted sensitive columns for {SOURCE_TABLE_2}")
     # Preprocess
     df_hist["not_renewed_reasons"] = (
         df_hist["not_renewed_reasons"].fillna("").astype(str)
@@ -172,7 +182,14 @@ def top_3_reason():
     df = pd.read_sql(query_pred, con=engine)
 
     print(f"📌 Loaded Prediction Table: {len(df)} rows")
+    # 🔓 Decrypt sensitive columns before cleaning
+    for col in df_hist.columns:
+        if col in sensitive_cols:
+            df_hist[col] = df_hist[col].apply(
+                    lambda x: decrypt_value(x, fernet)
+            )
 
+    print(f"🔓 Decrypted sensitive columns for {SOURCE_TABLE_1}")
     df["not_renewed_reasons"] = (
         df["not_renewed_reasons"].fillna("").astype(str)
     )
@@ -222,6 +239,14 @@ def top_3_reason():
         df.columns.str.strip().str.lower().str.replace(" ", "_")
     )
     print("normalization for columns applied")
+    # 🔐 Re-encrypt sensitive columns before loading
+    for col in df.columns:
+        if col in sensitive_cols:
+            df[col] = df[col].apply(
+                lambda x: encrypt_value(x, fernet)
+            )
+
+    print(f"🔐 Re-encrypted sensitive columns before loading {TARGET_SCHEMA}.{TARGET_TABLE}")
     load_chunked(df, TARGET_TABLE, TARGET_SCHEMA)
 
     print("🎉 FINAL OUTPUT SAVED SUCCESSFULLY")
@@ -232,9 +257,9 @@ def top_3_reason():
     update_top3_metadata(engine)
 
 
-# # ----------------------------------------------------------
-# # DAG
-# # ----------------------------------------------------------
+# ----------------------------------------------------------
+# DAG
+# ----------------------------------------------------------
 default_args = {
     "owner": "airflow",
     "depends_on_past": False,
@@ -254,9 +279,5 @@ with DAG(
         task_id="generate_top_3_reasons",
         python_callable=top_3_reason,
     )
-    segmentation_task = PythonOperator(
-        task_id="customer_segmenatation",
-        python_callable=cus_segmentation,
-    )
 
-    task_top3 >> segmentation_task
+    task_top3

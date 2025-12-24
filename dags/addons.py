@@ -94,7 +94,7 @@ def addon_column():
                 lambda x: decrypt_value(x, fernet)
                 )
 
-    print(f"🔓 Decrypted sensitive columns for {source_table}")
+    print(f"🔓 Decrypted sensitive columns for {SOURCE_TABLE}")
     # 3. Apply zone mapping
 
     df['zone'] = df.apply(
@@ -169,7 +169,7 @@ def addon_column():
         if col in sensitive_cols:
             df[col] = df[col].apply(lambda x: encrypt_value(x, fernet))
 
-    print(f"🔐 Re-encrypted sensitive columns before loading {TARGET_SCHEMA}.{target_table}")
+    print(f"🔐 Re-encrypted sensitive columns before loading {SOURCE_SCHEMA}.{TARGET_TABLE}")
     
     # # BOOKED = 1 ⇒ renewed_flag = 1
     # if "booked" in df.columns and "renewed_flag" in df.columns:
@@ -196,17 +196,17 @@ def addon_column():
 
 
 
-# with DAG(
-#     dag_id = "zone_mapp",
-#     default_args = {"owner":"airflow","start_date":datetime(2024,1,1)},
-#     schedule_interval = None,
-#     catchup = False,
-#     tags = ["map","zone"]
-# ) as dag:
+with DAG(
+    dag_id = "zone_mapp",
+    default_args = {"owner":"airflow","start_date":datetime(2024,1,1)},
+    schedule_interval = None,
+    catchup = False,
+    tags = ["map","zone"]
+) as dag:
 
-#     update_zone_task = PythonOperator(
-#         task_id = 'update_zone_task',
-#         python_callable = addon_column
-#     )
+    update_zone_task = PythonOperator(
+        task_id = 'update_zone_task',
+        python_callable = addon_column
+    )
 
-#     update_zone_task
+    update_zone_task

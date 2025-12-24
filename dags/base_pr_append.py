@@ -463,7 +463,7 @@ def append_base_pr(base_table,pr_table,target_table,engine):
         if col in sensitive_cols:
             df[col] = df[col].apply(lambda x: encrypt_value(x, fernet))
 
-    print(f"🔐 Re-encrypted sensitive columns before loading {TARGET_SCHEMA}.{TARGET_TABLE}")
+    print(f"🔐 Re-encrypted sensitive columns before loading {TARGET_SCHEMA}.{target_table}")
 
     
  # ✅ Load Cleaned Data into Target Table

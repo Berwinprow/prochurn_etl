@@ -155,7 +155,7 @@ def build_policy_features():
     for col in df.columns:
         if col in sensitive_cols:
             df[col] = df[col].apply(lambda x: decrypt_value(x, fernet))
-    print(f"🔓 Decrypted sensitive columns for {source_table}")
+    print(f"🔓 Decrypted sensitive columns for {SOURCE_TABLE}")
     # Dates, dtypes & ordering
     df['policy_start_date'] = pd.to_datetime(df['policy_start_date'])
     df['policy_end_date']   = pd.to_datetime(df['policy_end_date'])
@@ -445,7 +445,7 @@ def build_policy_features():
         if col in sensitive_cols:
             df[col] = df[col].apply(lambda x: encrypt_value(x, fernet))
 
-    print(f"🔐 Re-encrypted sensitive columns before loading {TARGET_SCHEMA}.{target_table}")
+    print(f"🔐 Re-encrypted sensitive columns before loading {TARGET_SCHEMA}.{TARGET_TABLE}")
     print(f"✅ Pricing catalog columns added: {[c for c in pricing_catalog.columns if c not in pricing_grp_col]}")
 
     try:

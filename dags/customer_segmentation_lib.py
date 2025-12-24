@@ -7,6 +7,8 @@ from airflow.providers.postgres.hooks.postgres import PostgresHook
 from sqlalchemy import text
 import pandas as pd
 
+from config.crypto_utils import get_fernet, encrypt_value, decrypt_value
+from config.config_loader import load_sensitive_columns
 from schema_table_config import get_log_tables, get_schema
 
 
@@ -110,13 +112,22 @@ def cus_segmentation():
 
     hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
     engine = hook.get_sqlalchemy_engine()
-
+    fernet = get_fernet()
+    sensitive_cols = load_sensitive_columns()
+    print("🔐 Fernet initialized & sensitive columns loaded")
     # ---------------------------
     # STEP 1: Load Prediction Table
     # ---------------------------
     query_hist = f"SELECT * FROM {SOURCE_SCHEMA}.{SOURCE_TABLE_1};"
     data = pd.read_sql(query_hist, con=engine)
+    # 🔓 Decrypt sensitive columns before cleaning
+    for col in data.columns:
+        if col in sensitive_cols:
+            data[col] = data[col].apply(
+                    lambda x: decrypt_value(x, fernet)
+            )
 
+    print(f"🔓 Decrypted sensitive columns for {SOURCE_TABLE_1}")    
     print(f"📌 Loaded TOP 3 REASON FILE: {len(data)} rows")
 
     high_discount_threshold = data[
@@ -207,6 +218,12 @@ def cus_segmentation():
         data.columns.str.strip().str.lower().str.replace(" ", "_")
     )
     print("normalization for columns applied")
+    # 🔐 Re-encrypt sensitive columns before loading
+    for col in data.columns:
+        if col in sensitive_cols:
+            data[col] = data[col].apply(lambda x: encrypt_value(x, fernet))
+
+    print(f"🔐 Re-encrypted sensitive columns before loading {TARGET_SCHEMA}.{TARGET_TABLE}")
     load_chunked(data, TARGET_TABLE, TARGET_SCHEMA)
 
     print("🎉 FINAL OUTPUT SAVED SUCCESSFULLY")

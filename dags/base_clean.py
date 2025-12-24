@@ -228,6 +228,14 @@ def cleanse_and_load_base_tables(**context):
                 df = df_sorted.drop_duplicates(subset=["policy_no"], keep="first")
 
             removed_rows_all = pd.concat([removed_rows_all, removed_rows])
+            removed_rows_all = removed_rows_all.copy()
+            for col in removed_rows_all.columns:
+                if col in sensitive_cols:
+                    removed_rows_all[col] = removed_rows_all[col].apply(
+                        lambda x: encrypt_value(x, fernet)
+                    )
+            print(f"re-encrypted the removed rows in log ")
+
             # 🔐 Re-encrypt sensitive columns before loading
             for col in df.columns:
                 if col in sensitive_cols:
