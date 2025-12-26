@@ -40,71 +40,6 @@ def get_latest_addons_table(engine):
         print(f"no table found in {FEATURE_LOG}")
         return None
 
-def update_renewal_rate_status():    
-    hook = PostgresHook(postgres_conn_id="postgres_cloud_prochurn")
-    conn = hook.get_conn()
-    cur = conn.cursor()
-
-    print("\n🚀 Running renewal rate status update...")
-
-    sql = f"""
-
-    ALTER TABLE {SOURCE_SCHEMA}.{TABLE}
-    ADD COLUMN IF NOT EXISTS renewal_rate_status TEXT;
-
-    DROP TABLE IF EXISTS temp_renewal_rate;
-    CREATE TEMP TABLE temp_renewal_rate AS
-    SELECT
-        cleaned_chassis_no,
-        cleaned_engine_no,
-        corrected_name,
-        policy_start_date,
-        CASE 
-            WHEN LAG(policy_end_date) OVER (
-                PARTITION BY cleaned_chassis_no, cleaned_engine_no, corrected_name
-                ORDER BY policy_start_date
-            ) IS NULL THEN 'Null'
-
-            WHEN policy_start_date <
-                 LAG(policy_end_date) OVER (
-                     PARTITION BY cleaned_chassis_no, cleaned_engine_no, corrected_name
-                     ORDER BY policy_start_date
-                 ) + INTERVAL '1 day' THEN 'Null'
-
-            ELSE CASE
-                WHEN ROUND(total_premium_payable::numeric,0) >
-                     LAG(ROUND(total_premium_payable::numeric,0)) OVER (
-                         PARTITION BY cleaned_chassis_no, cleaned_engine_no, corrected_name
-                         ORDER BY policy_start_date
-                     )
-                THEN 'Increase'
-
-                WHEN ROUND(total_premium_payable::numeric,0) <
-                     LAG(ROUND(total_premium_payable::numeric,0)) OVER (
-                         PARTITION BY cleaned_chassis_no, cleaned_engine_no, corrected_name
-                         ORDER BY policy_start_date
-                     )
-                THEN 'Decrease'
-
-                ELSE 'No Change'
-            END
-        END AS renewal_status
-    FROM {SOURCE_SCHEMA}.{TABLE};
-
-    UPDATE {SOURCE_SCHEMA}.{TABLE} t
-    SET renewal_rate_status = tmp.renewal_status
-    FROM temp_renewal_rate tmp
-    WHERE t.cleaned_chassis_no = tmp.cleaned_chassis_no
-      AND t.cleaned_engine_no = tmp.cleaned_engine_no
-      AND t.corrected_name = tmp.corrected_name
-      AND t.policy_start_date = tmp.policy_start_date;
-    """
-
-    cur.execute(sql)
-    conn.commit()
-    cur.close()
-
-    print("✅ Completed: renewal rate status update\n")
 
 def update_feature_log_newcol(engine, target_table, count_val):
     
@@ -160,6 +95,42 @@ def build_policy_features():
     df['policy_start_date'] = pd.to_datetime(df['policy_start_date'])
     df['policy_end_date']   = pd.to_datetime(df['policy_end_date'])
 
+    # ================= Renewal Rate Status (SQL → Python) =================
+    group_cols = ["cleaned_chassis_no", "cleaned_engine_no", "corrected_name"]
+    # Ensure correct ordering (same as ORDER BY in SQL window)
+    df = df.sort_values(group_cols + ["policy_start_date"])
+    # Previous policy end date
+    df["prev_policy_end_date"] = (
+        df.groupby(group_cols)["policy_end_date"].shift()
+    )
+    # Previous rounded premium
+    df["prev_premium"] = (
+        df.groupby(group_cols)["total_premium_payable"]
+        .apply(lambda s: s.round(0).shift())
+    )
+    # Current rounded premium
+    df["curr_premium"] = df["total_premium_payable"].round(0)
+    def renewal_status_logic(row):
+        # CASE 1: No previous policy
+        if pd.isna(row["prev_policy_end_date"]):
+            return "Null"
+        # CASE 2: Overlap or continuous coverage
+        if row["policy_start_date"] < row["prev_policy_end_date"] + pd.Timedelta(days=1):
+            return "Null"
+        # CASE 3: Valid comparison
+        if row["curr_premium"] > row["prev_premium"]:
+            return "Increase"
+        elif row["curr_premium"] < row["prev_premium"]:
+            return "Decrease"
+        else:
+            return "No Change"
+    df["renewal_rate_status"] = df.apply(renewal_status_logic, axis=1)
+    # Cleanup temp columns (equivalent to dropping temp table)
+    df.drop(
+        columns=["prev_policy_end_date", "prev_premium", "curr_premium"],
+        inplace=True
+    )
+    # =====================================================================
     # Function to clean names
     def clean_name(name):
         return re.sub(r'[^a-zA-Z0-9]', '', str(name)).lower()
@@ -515,17 +486,12 @@ with DAG(
     tags=["policy", "new", "column"]
 ) as dag:
 
-    update_renewal_task = PythonOperator(
-        task_id="renewal_rate_update",
-        python_callable=update_renewal_rate_status,
-        provide_context=True,
-    )
-
+   
     new_column_features = PythonOperator(
         task_id="new_column_features",
         python_callable=build_policy_features,
         provide_context=True,
     )
 
-    update_renewal_task >> new_column_features
+    new_column_features
 

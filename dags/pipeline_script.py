@@ -17,7 +17,7 @@ from baseprappend_inital import append_base_pr_initial
 from Furzzy_match import fuzzy_matching
 from claim_load_append_merge import append_claim_table , merge_claim_table , merge_basepr_with_claim
 from addons import addon_column
-from new_column_features import build_policy_features, update_renewal_rate_status
+from new_column_features import build_policy_features
 from base_pr_append import run_all_iterations
 from schema_table_config import ensure_all_schemas,get_logtable_details_from_json
 from future_prediction_lib import future_prediction
@@ -195,12 +195,6 @@ with DAG(
         provide_context=True,
     )
 
-    update_renewal_task = PythonOperator(
-        task_id="renewal_rate_update",
-        python_callable=update_renewal_rate_status,
-        provide_context=True,
-    )
-
     new_column_features = PythonOperator(
         task_id="new_column_features",
         python_callable=build_policy_features,
@@ -271,8 +265,8 @@ with DAG(
     
 
     start >> create_Schema >> create_log_tables >> load_initial_data >> [clean_base_data ,clean_pr_data ,append_claim] >> append_basepr 
-    append_basepr >> merge_claim >> fuzzy_match >> merge_baseprclaim >> add_on >> update_renewal_task 
-    update_renewal_task >> new_column_features >> prediction_task >> task_model_prediction >> task_policy_status 
+    append_basepr >> merge_claim >> fuzzy_match >> merge_baseprclaim >> add_on >> new_column_features
+    new_column_features >> prediction_task >> task_model_prediction >> task_policy_status 
     task_policy_status >> task_top3 >> segmentation_task >> monitoring_task >> end
     
     # start >> [clean_base_data , clean_pr_data] >> append_basepr_initial
