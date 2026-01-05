@@ -5,33 +5,121 @@
 import pandas as pd
 import re
 from airflow.providers.postgres.hooks.postgres import PostgresHook
-from datetime import datetime
+import logging
+logger = logging.getLogger(__name__)
+
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from time import sleep
 from pathlib import Path
-from datetime import timedelta
-from schema_table_config import get_schema, get_log_tables, get_column_mapping
-from config.crypto_utils import get_fernet , encrypt_value , decrypt_value
-from config.config_loader import load_sensitive_columns
+from datetime import timedelta, datetime
+from utils.schema_table_config import get_schema, get_log_tables, get_column_mapping
+from crypto.crypto_utils import get_fernet , encrypt_value , decrypt_value
+from utils.config_loader import load_sensitive_columns
 
 # ---------------------------------------------------------------------
 # 🔧 Constants
 # ---------------------------------------------------------------------
-DAGS_DIR = Path(__file__).resolve().parent
+DAGS_DIR = Path("/opt/airflow")
 JSON_PATH = str(DAGS_DIR / "config" / "schema_metadata_config.json")
 
 SOURCE_SCHEMA = get_schema("stage", JSON_PATH)
 TARGET_SCHEMA = get_schema("agg", JSON_PATH)
 LOG_SCHEMA = get_schema("log", JSON_PATH)
+ARCHIVE_SCHEMA = get_schema("archive_log", JSON_PATH)
 POSTGRES_CONN_ID = "postgres_cloud_prochurn"
 META_DATA = get_log_tables("metadata", JSON_PATH)
 # source_table = "base_22_n"
 
 COLUMN_JSON = str(DAGS_DIR / "config" / "column_mapping.json")
 COLUMN_MAPPING = get_column_mapping("base", COLUMN_JSON)
+
+# ---------------------------------------------------------------------
+# 🗃️ Archive logs
+# --------------------------------------------------------------------- 
+
+def archive_and_log_removed_rows(
+    engine,
+    removed_df,
+    source_table,
+    log_schema,
+    archive_schema,
+):
+    """
+    Archives existing removed rows table (if exists) and writes new removed rows
+    into log schema using if_exists=replace.
+    """
+
+    if removed_df.empty:
+        logger.info(
+            "No removed rows to log for table %s",
+            source_table,
+        )
+        return
+
+    log_table = f"removed_{source_table}"
+    archive_ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    archive_table = f"{log_table}_{archive_ts}"
+
+    with engine.begin() as conn:
+        exists = conn.execute(
+            text(
+                f"""
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = '{log_schema}'
+                    AND table_name = '{log_table}'
+                )
+                """
+            )
+        ).scalar()
+
+        if exists:
+            logger.info(
+                "Archiving existing removed rows table %s.%s → %s.%s",
+                log_schema,
+                log_table,
+                archive_schema,
+                archive_table,
+            )
+
+            conn.execute(
+                text(
+                    f"""
+                    CREATE TABLE {archive_schema}.{archive_table}
+                    AS
+                    SELECT * FROM {log_schema}.{log_table}
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    f"""
+                    DROP TABLE {log_schema}.{log_table}
+                    """
+                )
+            )
+
+        logger.info(
+            "Writing %d removed rows into %s.%s",
+            len(removed_df),
+            log_schema,
+            log_table,
+        )
+
+        removed_df.to_sql(
+            name=log_table,
+            schema=log_schema,
+            con=conn,
+            if_exists="replace",
+            index=False,
+            chunksize=2000,
+            method="multi",
+        )
 
 # ---------------------------------------------------------------------
 # 🗃️ Update metadata logs
@@ -63,15 +151,15 @@ def update_metadata(table_name, step, status=True, row_count=None,removed_cnt=No
                     "ts": datetime.utcnow()
                 })
             engine.dispose()
-            print(f"✅ Metadata updated for {table_name}")
+            logger.info(f"✅ Metadata updated for {table_name}")
             return  # exit if successful
 
         except OperationalError as e:
-            print(f"⚠️ Metadata update failed (attempt {attempt+1}/3): {e}")
+            logger.error(f"⚠️ Metadata update failed (attempt {attempt+1}/3): {e}")
             sleep(5)
             continue  # retry on transient timeout errors
 
-    print(f"❌ Failed to update metadata for {table_name} after 3 retries.")
+    logger.error(f"❌ Failed to update metadata for {table_name} after 3 retries.")
 
 # ---------------------------------------------------------------------
 # 🧹 Clean column names
@@ -106,7 +194,7 @@ def get_source_table():
         if results:
             return [r[0] for r in results]
         else:
-            print(f"⚠️ No base tables found in {SOURCE_SCHEMA}, skipping base_clean and moving on.")
+            logger.info(f"⚠️ No base tables found in {SOURCE_SCHEMA}, skipping base_clean and moving on.")
             return []
         
 # ---------------------------------------------------------------------
@@ -121,23 +209,24 @@ def cleanse_and_load_base_tables(**context):
     source_tables = get_source_table()
     # source_tables = base_2022"
     if not source_tables:
-        print("no base found moving to next step")
+        logger.info("no base found moving to next step")
         return
-    print(f"Found tables to process: {source_tables}")
+    logger.info(f"Found tables to process: {source_tables}")
 
     with engine.begin() as conn:
+        conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {ARCHIVE_SCHEMA};"))
         conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {TARGET_SCHEMA};"))
         conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {LOG_SCHEMA};"))
     # 🔐 Encryption setup (once per DAG run)
     fernet = get_fernet()
     sensitive_cols = load_sensitive_columns()
 
-    print("🔐 Fernet initialized & sensitive columns loaded")
+    logger.info("🔐 Fernet initialized & sensitive columns loaded")
 
 
     for source_table in source_tables:
         try:
-            print(f"\n▶ Processing table: {source_table}")
+            logger.info(f"\n▶ Processing table: {source_table}")
             df = pd.read_sql(text(f'SELECT * FROM "{SOURCE_SCHEMA}"."{source_table}"'), engine)
             # 🔓 Decrypt sensitive columns before cleaning
             for col in df.columns:
@@ -146,7 +235,7 @@ def cleanse_and_load_base_tables(**context):
                         lambda x: decrypt_value(x, fernet)
                     )
 
-            print(f"🔓 Decrypted sensitive columns for {source_table}")
+            logger.info(f"🔓 Decrypted sensitive columns for {source_table}")
 
             removed_rows_all = pd.DataFrame()
             removed_cnt = 0
@@ -154,9 +243,9 @@ def cleanse_and_load_base_tables(**context):
             df["file_source"] = source_table
             df["pipeline_run_time"] = pipeline_run_time  # ✅ Add processing time to cleaned data
 
-            print("🔍 Raw Columns with repr():")
+            logger.info("🔍 Raw Columns with repr():")
             for col in df.columns:
-                print(repr(col))
+                logger.info(repr(col))
 
             # Step 1: Normalize column names in DataFrame
             df.columns = [col.strip().lower() for col in df.columns]
@@ -174,9 +263,9 @@ def cleanse_and_load_base_tables(**context):
             mapped_columns = set(original_columns).intersection(COLUMN_MAPPING.keys())
             updated_columns = {col: COLUMN_MAPPING[col] for col in mapped_columns if col in COLUMN_MAPPING}
 
-            print(f"🔄 Column Mapping Applied: {len(updated_columns)} columns changed.")
+            logger.info(f"🔄 Column Mapping Applied: {len(updated_columns)} columns changed.")
             for old_col, new_col in updated_columns.items():
-                print(f"   🔹 `{old_col}` → `{new_col}`")
+                logger.info(f"   🔹 `{old_col}` → `{new_col}`")
 
             # 🧹 Clean core identifiers and create cleaned_* columns
             for src, tgt in {
@@ -224,7 +313,7 @@ def cleanse_and_load_base_tables(**context):
                 df_sorted = df.sort_values("total_premium_payable", ascending=False)
                 removed_policy_dupes = df_sorted[df_sorted.duplicated(subset=["policy_no"], keep="first")].copy()
                 removed_policy_dupes["removal_reason"] = "Duplicate policy_no (kept highest premium)"
-                removed_rows_all = pd.concat([removed_rows_all, removed_policy_dupes])
+                removed_rows = pd.concat([removed_rows, removed_policy_dupes])
                 df = df_sorted.drop_duplicates(subset=["policy_no"], keep="first")
 
             removed_rows_all = pd.concat([removed_rows_all, removed_rows])
@@ -234,7 +323,7 @@ def cleanse_and_load_base_tables(**context):
                     removed_rows_all[col] = removed_rows_all[col].apply(
                         lambda x: encrypt_value(x, fernet)
                     )
-            print(f"re-encrypted the removed rows in log ")
+            logger.info(f"re-encrypted the removed rows in log ")
 
             # 🔐 Re-encrypt sensitive columns before loading
             for col in df.columns:
@@ -243,30 +332,29 @@ def cleanse_and_load_base_tables(**context):
                         lambda x: encrypt_value(x, fernet)
                     )
 
-            print(f"🔐 Re-encrypted sensitive columns before loading {TARGET_SCHEMA}.{source_table}")
-
+            logger.info(f"🔐 Re-encrypted sensitive columns before loading {TARGET_SCHEMA}.{source_table}")
+            # 🔥 TRUNCATE FIRST (exact place)
+            with engine.begin() as conn:
+                conn.execute(
+                    text(f'TRUNCATE TABLE "{TARGET_SCHEMA}"."{source_table}"')
+                )
             # ✅ Write cleaned chunk to Cleaned schema using isolated connection
             with engine.begin() as write_conn:
-                df.to_sql(name=source_table, schema=TARGET_SCHEMA, con=write_conn, if_exists="replace", index=False,chunksize=50000,method='multi')
-            print(f"rows get loaded to {TARGET_SCHEMA}.{source_table} with row count of {len(df)}")
-                
-            # 🧾 Log removed rows after all chunks using isolated connection
-            if not removed_rows_all.empty:
-                removed_rows_all["pipeline_run_time"] = pipeline_run_time
-                log_table = f"removed_{source_table}"
-                # 🔁 Reconnect before writing to log schema
-                engine.dispose()
-                sleep(2)
-                hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
-                engine = hook.get_sqlalchemy_engine()
-                removed_cnt = len(removed_rows_all)
-                with engine.begin() as log_conn:
-                    removed_rows_all.to_sql(name=log_table, schema=LOG_SCHEMA, con=log_conn, if_exists="replace", index=False,chunksize = 2000)
-                print(f"Removed rows logged in {LOG_SCHEMA}.{log_table}: {removed_cnt}")
+                df.to_sql(name=source_table, schema=TARGET_SCHEMA, con=write_conn, if_exists="append", index=False,chunksize=50000,method='multi')
+            logger.info(f"rows get loaded to {TARGET_SCHEMA}.{source_table} with row count of {len(df)}")
+            removed_cnt = len(removed_rows_all)
+
+            archive_and_log_removed_rows(
+                engine=engine,
+                removed_df=removed_rows_all,
+                source_table=source_table,
+                log_schema=LOG_SCHEMA,
+                archive_schema=ARCHIVE_SCHEMA,
+            )
 
             with engine.begin() as conn:
                 row_cnt = conn.execute(text(f"SELECT COUNT(*) FROM {TARGET_SCHEMA}.{source_table}")).scalar()
-            print(f"total row count in {TARGET_SCHEMA}.{source_table} is : {row_cnt}")
+            logger.info(f"total row count in {TARGET_SCHEMA}.{source_table} is : {row_cnt}")
 
             # 🔁 Refresh connection before metadata update
             engine.dispose()
@@ -276,8 +364,8 @@ def cleanse_and_load_base_tables(**context):
             engine = hook.get_sqlalchemy_engine()
 
             update_metadata(source_table, "is_base_cleaned", True, row_count=row_cnt,removed_cnt=removed_cnt)
-        except Exception as e:
-            print(f"❌ Failed to process {source_table}: {e}")
+        except Exception:
+            logger.error(f"❌ Failed to process %s" ,source_table, exc_info=True)
             raise
   
 with DAG(

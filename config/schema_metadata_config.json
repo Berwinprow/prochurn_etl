@@ -7,7 +7,7 @@
         "log":"pip_log",
         "da/ml":"pip_prediction",
         "monitoring":"pip_health_monitoring",
-        "archive_log":"pip_archive_test_log"
+        "archive_log":"pip_archive_log"
     },
 
     "logtables":{

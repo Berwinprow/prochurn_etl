@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 
-CONFIG_DIR = Path(__file__).parent
+CONFIG_DIR = Path("/opt/airflow/config")
 
 
 def load_sensitive_columns():

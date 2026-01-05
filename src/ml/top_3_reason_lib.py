@@ -7,14 +7,14 @@ from airflow.providers.postgres.hooks.postgres import PostgresHook
 from sqlalchemy import text
 import pandas as pd
 
-from schema_table_config import get_log_tables, get_schema
-from config.crypto_utils import get_fernet, encrypt_value, decrypt_value
-from config.config_loader import load_sensitive_columns
+from utils.schema_table_config import get_log_tables, get_schema
+from crypto.crypto_utils import get_fernet, encrypt_value, decrypt_value
+from utils.config_loader import load_sensitive_columns
 
 # ----------------------------------------------------------
 # Source / Target Tables
 # ----------------------------------------------------------
-DAGS_DIR = Path(__file__).resolve().parent
+DAGS_DIR = Path("/opt/airflow")
 META_JSON = str(DAGS_DIR / "config" / "schema_metadata_config.json")
 
 SOURCE_TABLE_1 = "future_prediction_with_notrenewal_reason"
@@ -183,9 +183,9 @@ def top_3_reason():
 
     print(f"📌 Loaded Prediction Table: {len(df)} rows")
     # 🔓 Decrypt sensitive columns before cleaning
-    for col in df_hist.columns:
+    for col in df.columns:
         if col in sensitive_cols:
-            df_hist[col] = df_hist[col].apply(
+            df[col] = df[col].apply(
                     lambda x: decrypt_value(x, fernet)
             )
 

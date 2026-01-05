@@ -10,89 +10,93 @@ from pathlib import Path
 
 
 # --- Import ETL Stage Functions ---
-from load_data_to_postgres_stage_test_flake import load_data_to_postgres_stage
-from base_clean import cleanse_and_load_base_tables
-from clean_pr import clean_and_load_pr_data
-from baseprappend_inital import append_base_pr_initial
-from Furzzy_match import fuzzy_matching
-from claim_load_append_merge import append_claim_table , merge_claim_table , merge_basepr_with_claim
-from addons import addon_column
-from new_column_features import build_policy_features
-from base_pr_append import run_all_iterations
-from schema_table_config import ensure_all_schemas,get_logtable_details_from_json
-from future_prediction_lib import future_prediction
-from not_renewed_reason_lib import call_pred_data_def , call_historic_data_def
-from top_3_reason_lib import top_3_reason
-from customer_segmentation_lib import cus_segmentation
-from model_health_monitoring_lib import Monitoring
+from extract.load_data_to_postgres_stage_test_flake import load_data_to_postgres_stage
+from transform.base_clean import cleanse_and_load_base_tables
+from transform.clean_pr import clean_and_load_pr_data
+from load.baseprappend_inital import append_base_pr_initial
+from transform.Furzzy_match import fuzzy_matching
+from load.claim_load_append_merge import append_claim_table , merge_claim_table , merge_basepr_with_claim
+from transform.addons import addon_column
+from load.new_column_features import build_policy_features
+from load.base_pr_append import run_all_iterations
+from utils.schema_table_config import ensure_all_schemas,get_logtable_details_from_json
+from ml.weight_file_generator_lib import model_file_generation
+from ml.future_prediction_lib import future_prediction
+from ml.not_renewed_reason_lib import call_pred_data_def , call_historic_data_def
+from ml.top_3_reason_lib import top_3_reason
+from ml.customer_segmentation_lib import cus_segmentation
+from ml.model_health_monitoring_lib import Monitoring
 
 
 postgres_conn_id = "postgres_cloud_prochurn"
-DAG_DIR = Path(__file__).resolve().parent
-json_path = str(DAG_DIR/"config"/"schema_metadata_config.json")
+AIRFLOW_BASE_DIR = Path("/opt/airflow")
 
-# ---------------------------------------------------------------------
-# ✅ Custom Failure Email Callback (Gmail-based)
-# ---------------------------------------------------------------------
-def send_failure_email(context):
-    dag_id = context.get('dag').dag_id
-    task_id = context.get('task_instance').task_id
-    exception = context.get('exception')
-    execution_date = context.get('execution_date')
-    log_url = context.get('task_instance').log_url
+JSON_PATH = str(
+    AIRFLOW_BASE_DIR / "config" / "schema_metadata_config.json"
+)
 
-    subject = f"🚨 Airflow Task Failed: {dag_id}.{task_id}"
+# # ---------------------------------------------------------------------
+# # ✅ Custom Failure Email Callback (Gmail-based)
+# # ---------------------------------------------------------------------
+# def send_failure_email(context):
+#     dag_id = context.get('dag').dag_id
+#     task_id = context.get('task_instance').task_id
+#     exception = context.get('exception')
+#     execution_date = context.get('execution_date')
+#     log_url = context.get('task_instance').log_url
 
-    html_content = f"""
-    <h3>🔴 Airflow Task Failure Alert</h3>
-    <p><b>DAG:</b> {dag_id}</p>
-    <p><b>Task:</b> {task_id}</p>
-    <p><b>Execution Date:</b> {execution_date}</p>
-    <p><b>Error:</b> {exception}</p>
-    <p><a href="{log_url}">🔗 View Logs</a></p>
-    """
+#     subject = f"🚨 Airflow Task Failed: {dag_id}.{task_id}"
 
-    # ✅ Send via Gmail SMTP connection
-    send_email(
-        to=["berwin.rayen@prowesstics.com"],
-        subject=subject,
-        html_content=html_content,
-        conn_id="smtp_default"  # Use your working Gmail connection
-    )
-    logging.info(f"[send_failure_email] Alert sent for task: {task_id}")
+#     html_content = f"""
+#     <h3>🔴 Airflow Task Failure Alert</h3>
+#     <p><b>DAG:</b> {dag_id}</p>
+#     <p><b>Task:</b> {task_id}</p>
+#     <p><b>Execution Date:</b> {execution_date}</p>
+#     <p><b>Error:</b> {exception}</p>
+#     <p><a href="{log_url}">🔗 View Logs</a></p>
+#     """
 
-# ---------------------------------------------------------------------
-# ✅ Optional Fallback Task (triggered when any task fails)
-# ---------------------------------------------------------------------
-def fallback_reprocess(**kwargs):
-    logging.warning("[fallback_reprocess] Triggered fallback flow due to failure.")
-    try:
-        dag_run = kwargs.get('dag_run')
-        failed_tasks = [
-            ti.task_id for ti in dag_run.get_task_instances() if ti.state == 'failed'
-        ]
-        logging.info(f"[fallback_reprocess] Failed tasks: {failed_tasks}")
+#     # ✅ Send via Gmail SMTP connection
+#     send_email(
+#         to=["berwin.rayen@prowesstics.com"],
+#         subject=subject,
+#         html_content=html_content,
+#         conn_id="smtp_default"  # Use your working Gmail connection
+#     )
+#     logging.info(f"[send_failure_email] Alert sent for task: {task_id}")
 
-        html_content = f"""
-        <h3>⚠️ ETL Fallback Triggered</h3>
-        <p>Some tasks failed in DAG <b>{dag_run.dag_id}</b>.</p>
-        <p><b>Failed Tasks:</b> {', '.join(failed_tasks) or 'None'}</p>
-        <p><b>Run ID:</b> {dag_run.run_id}</p>
-        <p>Fallback initiated to handle partial recovery.</p>
-        """
+# # ---------------------------------------------------------------------
+# # ✅ Optional Fallback Task (triggered when any task fails)
+# # ---------------------------------------------------------------------
+# def fallback_reprocess(**kwargs):
+#     logging.warning("[fallback_reprocess] Triggered fallback flow due to failure.")
+#     try:
+#         dag_run = kwargs.get('dag_run')
+#         failed_tasks = [
+#             ti.task_id for ti in dag_run.get_task_instances() if ti.state == 'failed'
+#         ]
+#         logging.info(f"[fallback_reprocess] Failed tasks: {failed_tasks}")
 
-        send_email(
-            to=["berwin.rayen@prowesstics.com"],
-            subject="⚠️ Fallback Triggered – ETL Recovery Started",
-            html_content=html_content,
-            conn_id="smtp_default"
-        )
+#         html_content = f"""
+#         <h3>⚠️ ETL Fallback Triggered</h3>
+#         <p>Some tasks failed in DAG <b>{dag_run.dag_id}</b>.</p>
+#         <p><b>Failed Tasks:</b> {', '.join(failed_tasks) or 'None'}</p>
+#         <p><b>Run ID:</b> {dag_run.run_id}</p>
+#         <p>Fallback initiated to handle partial recovery.</p>
+#         """
 
-        # 🧰 You can add your minimal recovery or retry logic here
-        logging.info("[fallback_reprocess] ✅ Fallback recovery completed successfully.")
-    except Exception as e:
-        logging.error(f"[fallback_reprocess] ❌ Fallback failed: {e}")
-        raise
+#         send_email(
+#             to=["berwin.rayen@prowesstics.com"],
+#             subject="⚠️ Fallback Triggered – ETL Recovery Started",
+#             html_content=html_content,
+#             conn_id="smtp_default"
+#         )
+
+#         # 🧰 You can add your minimal recovery or retry logic here
+#         logging.info("[fallback_reprocess] ✅ Fallback recovery completed successfully.")
+#     except Exception as e:
+#         logging.error(f"[fallback_reprocess] ❌ Fallback failed: {e}")
+#         raise
 
 # ---------------------------------------------------------------------
 # ✅ Default DAG Arguments
@@ -104,7 +108,7 @@ default_args = {
     'retry_delay': timedelta(minutes=5),
     'email_on_failure': False,
     'email_on_retry': False,
-    'on_failure_callback': send_failure_email,
+    # 'on_failure_callback': send_failure_email,
 }
 
 # ---------------------------------------------------------------------
@@ -127,13 +131,13 @@ with DAG(
         provide_context=True,
         op_kwargs={
                 "conn_id": postgres_conn_id,
-                "json_path": json_path,
+                "json_path": JSON_PATH,
             },
     )
     create_log_tables = PythonOperator(
         task_id= "create_log_schema",
         python_callable = get_logtable_details_from_json,
-        op_kwargs = {"conn_id": postgres_conn_id , "json_path":json_path},
+        op_kwargs = {"conn_id": postgres_conn_id , "json_path":JSON_PATH},
     )
     # ---------------- Stage 1 ----------------
     load_initial_data = PythonOperator(
@@ -156,7 +160,7 @@ with DAG(
         provide_context=True,
     )
 
-    # append_basepr_initial = PythonOperator(
+    # append_basepr = PythonOperator(
     #     task_id="base_pr_data_appending",
     #     python_callable=append_base_pr_initial,
     #     provide_context=True,
@@ -199,6 +203,11 @@ with DAG(
         task_id="new_column_features",
         python_callable=build_policy_features,
         provide_context=True,
+    )
+
+    generate_weights_task = PythonOperator(
+        task_id="generate_weight_file",
+        python_callable=model_file_generation,
     )
 
     prediction_task = PythonOperator(
@@ -265,9 +274,9 @@ with DAG(
     
 
     start >> create_Schema >> create_log_tables >> load_initial_data >> [clean_base_data ,clean_pr_data ,append_claim] >> append_basepr 
-    append_basepr >> merge_claim >> fuzzy_match >> merge_baseprclaim >> add_on >> new_column_features
-    new_column_features >> prediction_task >> task_model_prediction >> task_policy_status 
+    append_basepr >> merge_claim >> add_on >> fuzzy_match >> merge_baseprclaim >> new_column_features
+    new_column_features >> generate_weights_task >> prediction_task >> task_model_prediction >> task_policy_status 
     task_policy_status >> task_top3 >> segmentation_task >> monitoring_task >> end
     
-    # start >> [clean_base_data , clean_pr_data] >> append_basepr_initial
+    # start >> create_Schema >> create_log_tables >> load_initial_data >>[clean_base_data , clean_pr_data] >> append_basepr >> end
 

@@ -11,23 +11,21 @@ from airflow.providers.postgres.hooks.postgres import PostgresHook
 from sqlalchemy import text
 from sqlalchemy import create_engine
 
-from schema_table_config import get_log_tables, get_schema
-from config.crypto_utils import get_fernet, encrypt_value, decrypt_value
-from config.config_loader import load_sensitive_columns
+from utils.schema_table_config import get_log_tables, get_schema
+from crypto.crypto_utils import get_fernet, encrypt_value, decrypt_value
+from utils.config_loader import load_sensitive_columns
 
 # ---------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------
-DAGS_DIR = Path(__file__).resolve().parent
-WEIGHTS_DIR = DAGS_DIR / "weights"
-META_JSON = str(
-    DAGS_DIR / "config" / "schema_metadata_config.json"
-)
+DAGS_DIR = Path("/opt/airflow")
+WEIGHTS_DIR = DAGS_DIR /  "dags" / "weights"
+META_JSON = str(DAGS_DIR / "config" / "schema_metadata_config.json")
 
 POSTGRES_CONN_ID = "postgres_cloud_prochurn"
 
 SOURCE_SCHEMA = get_schema("bi_dwh", META_JSON)
-SOURCE_TABLE = "final_policy_features"
+SOURCE_TABLE = "final_policy_features_encrypt"
 
 TARGET_SCHEMA = get_schema("da/ml", META_JSON)
 TARGET_TABLE = "future_prediction"

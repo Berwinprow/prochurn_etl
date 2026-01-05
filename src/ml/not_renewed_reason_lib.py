@@ -7,18 +7,18 @@ from airflow.providers.postgres.hooks.postgres import PostgresHook
 from sqlalchemy import text
 import pandas as pd
 
-from schema_table_config import get_log_tables, get_schema
-from config.crypto_utils import get_fernet, encrypt_value, decrypt_value
-from config.config_loader import load_sensitive_columns
+from utils.schema_table_config import get_log_tables, get_schema
+from crypto.crypto_utils import get_fernet, encrypt_value, decrypt_value
+from utils.config_loader import load_sensitive_columns
 
 # --------------------------------------------------------------------
 # Source / Target Tables
 # --------------------------------------------------------------------
-DAGS_DIR = Path(__file__).resolve().parent
+DAGS_DIR = Path("/opt/airflow")
 META_JSON = str(DAGS_DIR / "config" / "schema_metadata_config.json")
 
 SOURCE_TABLE_1 = "future_prediction"
-SOURCE_TABLE_2 = "final_policy_features"
+SOURCE_TABLE_2 = "final_policy_features_encrypt"
 
 TARGET_TABLE_1 = "future_prediction_with_notrenewal_reason"
 TARGET_TABLE_2 = "final_policy_features_with_notrenewed_reason_only"
@@ -44,8 +44,8 @@ def update_reason_metadata(engine, count_rows):
     sql = f"""
         UPDATE {LOG_SCHEMA}.{FEATURE_ENG_LOG}
         SET
-            not_renewed_policy_name = {TARGET_TABLE_2},
-            non_renewed_policy_count = {count_rows},
+            not_renewed_policy_name = '{TARGET_TABLE_2}',
+            non_renewed_policy_count = {count_rows}
         WHERE date = (
             SELECT date
             FROM {LOG_SCHEMA}.{FEATURE_ENG_LOG}
@@ -192,6 +192,20 @@ def call_pred_data_def():
         if col in sensitive_cols:
             df[col] = df[col].apply(lambda x: decrypt_value(x, fernet))
     print(f"🔓 Decrypted sensitive columns for {SOURCE_TABLE_1}")
+    # Step 2: Ensure numeric columns are numeric
+    numeric_columns = [
+        "before_gst_add_on_gwp",
+        "total_od_premium",
+        "total_tp_premium",
+        "total_premium_payable",
+        "previous_year_ncb_percentage",
+        "applicable_discount_with_ncb",
+        "vehicle_age",
+        "vehicle_idv",
+    ]
+
+    for col in numeric_columns:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
     # Apply the function
     df["Not Renewed Reasons"] = df.apply(
         lambda r: reason_for_churn(r, "predicted_status"),

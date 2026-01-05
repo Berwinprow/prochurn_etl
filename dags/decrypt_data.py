@@ -8,8 +8,8 @@ import pandas as pd
 import logging
 import json
 
-from config.crypto_utils import get_fernet, decrypt_value
-from config.config_loader import load_sensitive_columns
+from crypto.crypto_utils import get_fernet, decrypt_value
+from utils.config_loader import load_sensitive_columns
 
 # ------------------------------------------------------------
 # Constants

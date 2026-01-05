@@ -19,9 +19,9 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from datetime import timedelta
 from pathlib import Path
-from schema_table_config import get_schema, get_log_tables
-from config.crypto_utils import get_fernet , encrypt_value , decrypt_value
-from config.config_loader import load_sensitive_columns
+from utils.schema_table_config import get_schema, get_log_tables
+from crypto.crypto_utils import get_fernet , encrypt_value , decrypt_value
+from utils.config_loader import load_sensitive_columns
 
 
 # ---------------------------------------------------------------------
@@ -29,8 +29,11 @@ from config.config_loader import load_sensitive_columns
 # ---------------------------------------------------------------------
 POSTGRES_CONN_ID = "postgres_cloud_prochurn"
 AZURE_BLOB_CONN_ID = "azure_blob"
-DAGS_DIR = Path(__file__).resolve().parent
-JSON_PATH = str(DAGS_DIR/"config"/"schema_metadata_config.json")
+AIRFLOW_BASE_DIR = Path("/opt/airflow")
+
+JSON_PATH = str(
+    AIRFLOW_BASE_DIR / "config" / "schema_metadata_config.json"
+)
 SCHEMA_NAME_VAR = get_schema("stage",JSON_PATH)
 BATCH_SIZE = 1000
 LOG_SCHEMA = get_schema("log",JSON_PATH)
@@ -199,16 +202,22 @@ def process_file_bytes_to_postgres(file_bytes, file_name, engine, schema_name):
                     ),
                     {"table_name": table_name},
                 ).fetchone()
-                print(f"the schema and table used are {LOG_SCHEMA}.{meta_table}")
+                logging.info(f"the schema and table used are {LOG_SCHEMA}.{meta_table}")
                 if result and result[0] == "YES":
                     logging.info(f"Skipping {table_name}, already loaded.")
                     return
+
+            # ✅ TRUNCATE FIRST (EXACT PLACE)
+            with engine.begin() as conn:
+                conn.execute(
+                    text(f'TRUNCATE TABLE "{schema_name}"."{table_name}"')
+                )
 
             df.to_sql(
                 table_name,
                 engine,
                 schema=schema_name,
-                if_exists="replace",
+                if_exists="append",
                 index=False,
                 dtype=dtype_mapping,
                 chunksize=BATCH_SIZE,

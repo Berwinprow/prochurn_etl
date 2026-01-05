@@ -22,13 +22,13 @@ from sklearn.metrics import (
 from sklearn.preprocessing import LabelEncoder
 from sqlalchemy import create_engine, text
 
-from schema_table_config import get_log_tables, get_schema
+from utils.schema_table_config import get_log_tables, get_schema
 
 
 # --------------------------------------------------------------------
 # Paths / constants
 # --------------------------------------------------------------------
-DAGS_DIR = Path(__file__).resolve().parent
+DAGS_DIR = Path("/opt/airflow")
 META_JSON = str(DAGS_DIR / "config" / "schema_metadata_config.json")
 WEIGHTS_DIR = DAGS_DIR / "weights"
 WEIGHTS_DIR.mkdir(exist_ok=True)
@@ -40,7 +40,7 @@ feature_file_path = WEIGHTS_DIR / "model_features_gbm.pkl"
 
 POSTGRES_CONN_ID = "postgres_cloud_prochurn"
 SOURCE_SCHEMA = get_schema("bi_dwh", META_JSON)
-SOURCE_TABLE = "final_policy_features"
+SOURCE_TABLE = "final_policy_features_encrypt"
 
 
 # --------------------------------------------------------------------

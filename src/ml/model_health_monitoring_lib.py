@@ -23,22 +23,22 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 
-from schema_table_config import get_schema
-from config.crypto_utils import get_fernet, encrypt_value, decrypt_value
-from config.config_loader import load_sensitive_columns
+from utils.schema_table_config import get_schema
+from crypto.crypto_utils import get_fernet, encrypt_value, decrypt_value
+from utils.config_loader import load_sensitive_columns
 
 
 # --------------------------------------------------------------------
 # Config / constants
 # --------------------------------------------------------------------
-DAGS_DIR = Path(__file__).resolve().parent
+DAGS_DIR = Path("/opt/airflow")
 META_JSON = str(DAGS_DIR / "config" / "schema_metadata_config.json")
-WEIGHTS_DIR = DAGS_DIR / "weights"
+WEIGHTS_DIR = DAGS_DIR /  "dags" / "weights"
 
 POSTGRES_CONN_ID = "postgres_cloud_prochurn"
 
 SOURCE_SCHEMA = get_schema("bi_dwh", META_JSON)
-SOURCE_TABLE = "final_policy_features"
+SOURCE_TABLE = "final_policy_features_encrypt"
 
 TARGET_SCHEMA = get_schema("monitoring", META_JSON)
 roc_table_name = "model_roc_curve_data"
@@ -49,8 +49,8 @@ model = joblib.load(WEIGHTS_DIR / "gbm_model.pkl")
 label_encoders = joblib.load(WEIGHTS_DIR / "label_encoders_gbm.pkl")
 features = joblib.load(WEIGHTS_DIR / "model_features_gbm.pkl")
 
-OUTER_CHUNK = 100000
-INNER_CHUNK = 50000
+OUTER_CHUNK = 200000
+INNER_CHUNK = 100000
 
 
 # --------------------------------------------------------------------

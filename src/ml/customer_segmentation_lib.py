@@ -7,15 +7,15 @@ from airflow.providers.postgres.hooks.postgres import PostgresHook
 from sqlalchemy import text
 import pandas as pd
 
-from config.crypto_utils import get_fernet, encrypt_value, decrypt_value
-from config.config_loader import load_sensitive_columns
-from schema_table_config import get_log_tables, get_schema
+from crypto.crypto_utils import get_fernet, encrypt_value, decrypt_value
+from utils.config_loader import load_sensitive_columns
+from utils.schema_table_config import get_log_tables, get_schema
 
 
 # ----------------------------------------------------------
 # Source / Target Tables
 # ----------------------------------------------------------
-DAGS_DIR = Path(__file__).resolve().parent
+DAGS_DIR = Path("/opt/airflow")
 META_JSON = str(DAGS_DIR / "config" / "schema_metadata_config.json")
 
 SOURCE_TABLE_1 = "future_predition_with_top3_reason"
