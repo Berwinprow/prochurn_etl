@@ -124,21 +124,21 @@ with DAG(
 
     start = DummyOperator(task_id="start_pipeline")
 
-    #  ---------------- Stage 0 ----------------
-    create_Schema = PythonOperator(
-        task_id='Create_all_schemas',
-        python_callable=ensure_all_schemas,
-        provide_context=True,
-        op_kwargs={
-                "conn_id": postgres_conn_id,
-                "json_path": JSON_PATH,
-            },
-    )
-    create_log_tables = PythonOperator(
-        task_id= "create_log_schema",
-        python_callable = get_logtable_details_from_json,
-        op_kwargs = {"conn_id": postgres_conn_id , "json_path":JSON_PATH},
-    )
+    # #  ---------------- Stage 0 ----------------
+    # create_Schema = PythonOperator(
+    #     task_id='Create_all_schemas',
+    #     python_callable=ensure_all_schemas,
+    #     provide_context=True,
+    #     op_kwargs={
+    #             "conn_id": postgres_conn_id,
+    #             "json_path": JSON_PATH,
+    #         },
+    # )
+    # create_log_tables = PythonOperator(
+    #     task_id= "create_log_schema",
+    #     python_callable = get_logtable_details_from_json,
+    #     op_kwargs = {"conn_id": postgres_conn_id , "json_path":JSON_PATH},
+    # )
     # ---------------- Stage 1 ----------------
     load_initial_data = PythonOperator(
         task_id='initial_data_load',
@@ -146,99 +146,99 @@ with DAG(
         provide_context=True,
     )
 
-    # ---------------- Stage 2 ----------------
-    clean_base_data = PythonOperator(
-        task_id="clean_and_load_base_data",
-        python_callable=cleanse_and_load_base_tables,
-        provide_context=True,
-    )
-
-    # ---------------- Stage 3 ----------------
-    clean_pr_data = PythonOperator(
-        task_id="clean_pr_file_data",
-        python_callable=clean_and_load_pr_data,
-        provide_context=True,
-    )
-
-    # append_basepr = PythonOperator(
-    #     task_id="base_pr_data_appending",
-    #     python_callable=append_base_pr_initial,
+    # # ---------------- Stage 2 ----------------
+    # clean_base_data = PythonOperator(
+    #     task_id="clean_and_load_base_data",
+    #     python_callable=cleanse_and_load_base_tables,
     #     provide_context=True,
     # )
 
-    # ---------------- Stage 4 ----------------
-    append_basepr = PythonOperator(
-        task_id="base_pr_data_appending",
-        python_callable=run_all_iterations,
-        provide_context=True,
-    )
-    append_claim = PythonOperator(
-        task_id = "append_claim",
-        python_callable = append_claim_table
-    )
-    # ---------------- Stage 5 (Optional) ----------------
-    fuzzy_match = PythonOperator(
-        task_id="adding_fuzzy_matching_for_basepr_append",
-        python_callable=fuzzy_matching,
-        provide_context=True,
-    )
+    # # ---------------- Stage 3 ----------------
+    # clean_pr_data = PythonOperator(
+    #     task_id="clean_pr_file_data",
+    #     python_callable=clean_and_load_pr_data,
+    #     provide_context=True,
+    # )
 
-    merge_claim = PythonOperator(
-        task_id = "mergeclaim",
-        python_callable = merge_claim_table
-    )
+    # # append_basepr = PythonOperator(
+    # #     task_id="base_pr_data_appending",
+    # #     python_callable=append_base_pr_initial,
+    # #     provide_context=True,
+    # # )
 
-    merge_baseprclaim = PythonOperator(
-        task_id = "mergebaseprwithclaim",
-        python_callable = merge_basepr_with_claim
-    )
+    # # ---------------- Stage 4 ----------------
+    # append_basepr = PythonOperator(
+    #     task_id="base_pr_data_appending",
+    #     python_callable=run_all_iterations,
+    #     provide_context=True,
+    # )
+    # append_claim = PythonOperator(
+    #     task_id = "append_claim",
+    #     python_callable = append_claim_table
+    # )
+    # # ---------------- Stage 5 (Optional) ----------------
+    # fuzzy_match = PythonOperator(
+    #     task_id="adding_fuzzy_matching_for_basepr_append",
+    #     python_callable=fuzzy_matching,
+    #     provide_context=True,
+    # )
 
-    add_on = PythonOperator(
-        task_id="add_on",
-        python_callable=addon_column,
-        provide_context=True,
-    )
+    # merge_claim = PythonOperator(
+    #     task_id = "mergeclaim",
+    #     python_callable = merge_claim_table
+    # )
 
-    new_column_features = PythonOperator(
-        task_id="new_column_features",
-        python_callable=build_policy_features,
-        provide_context=True,
-    )
+    # merge_baseprclaim = PythonOperator(
+    #     task_id = "mergebaseprwithclaim",
+    #     python_callable = merge_basepr_with_claim
+    # )
 
-    generate_weights_task = PythonOperator(
-        task_id="generate_weight_file",
-        python_callable=model_file_generation,
-    )
+    # add_on = PythonOperator(
+    #     task_id="add_on",
+    #     python_callable=addon_column,
+    #     provide_context=True,
+    # )
 
-    prediction_task = PythonOperator(
-        task_id="renewed_notrenewed_pred",
-        python_callable=future_prediction,
-    )
+    # new_column_features = PythonOperator(
+    #     task_id="new_column_features",
+    #     python_callable=build_policy_features,
+    #     provide_context=True,
+    # )
 
-    task_model_prediction = PythonOperator(
-        task_id="reason_for_prediction_table",
-        python_callable=call_pred_data_def,
-    )
+    # generate_weights_task = PythonOperator(
+    #     task_id="generate_weight_file",
+    #     python_callable=model_file_generation,
+    # )
 
-    task_policy_status = PythonOperator(
-        task_id="reason_for_policy_status_table",
-        python_callable=call_historic_data_def,
-    )
+    # prediction_task = PythonOperator(
+    #     task_id="renewed_notrenewed_pred",
+    #     python_callable=future_prediction,
+    # )
 
-    task_top3 = PythonOperator(
-        task_id="generate_top_3_reasons",
-        python_callable=top_3_reason,
-    )
+    # task_model_prediction = PythonOperator(
+    #     task_id="reason_for_prediction_table",
+    #     python_callable=call_pred_data_def,
+    # )
 
-    segmentation_task = PythonOperator(
-        task_id="customer_segmenatation",
-        python_callable=cus_segmentation,
-    )
+    # task_policy_status = PythonOperator(
+    #     task_id="reason_for_policy_status_table",
+    #     python_callable=call_historic_data_def,
+    # )
 
-    monitoring_task = PythonOperator(
-        task_id="model_health_monitoring",
-        python_callable=Monitoring,
-    )
+    # task_top3 = PythonOperator(
+    #     task_id="generate_top_3_reasons",
+    #     python_callable=top_3_reason,
+    # )
+
+    # segmentation_task = PythonOperator(
+    #     task_id="customer_segmenatation",
+    #     python_callable=cus_segmentation,
+    # )
+
+    # monitoring_task = PythonOperator(
+    #     task_id="model_health_monitoring",
+    #     python_callable=Monitoring,
+    # )
    
 
     # ---------------- EMAIL ALERT ON FAILURE ----------------
@@ -273,10 +273,11 @@ with DAG(
     # ---------------- DAG Flow ----------------
     
 
-    start >> create_Schema >> create_log_tables >> load_initial_data >> [clean_base_data ,clean_pr_data ,append_claim] >> append_basepr 
-    append_basepr >> merge_claim >> add_on >> fuzzy_match >> merge_baseprclaim >> new_column_features
-    new_column_features >> generate_weights_task >> prediction_task >> task_model_prediction >> task_policy_status 
-    task_policy_status >> task_top3 >> segmentation_task >> monitoring_task >> end
+    # start >> create_Schema >> create_log_tables >> load_initial_data >> [clean_base_data ,clean_pr_data ,append_claim] >> append_basepr 
+    # append_basepr >> merge_claim >> add_on >> fuzzy_match >> merge_baseprclaim >> new_column_features
+    # new_column_features >> generate_weights_task >> prediction_task >> task_model_prediction >> task_policy_status 
+    # task_policy_status >> task_top3 >> segmentation_task >> monitoring_task >> end
     
     # start >> create_Schema >> create_log_tables >> load_initial_data >>[clean_base_data , clean_pr_data] >> append_basepr >> end
 
+    load_initial_data

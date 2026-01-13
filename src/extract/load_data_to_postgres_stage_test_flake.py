@@ -10,6 +10,8 @@ import io
 import json
 import logging
 import re
+from azure.identity import DefaultAzureCredential
+from azure.storage.blob import BlobServiceClient
 import sys
 import pandas as pd
 from sqlalchemy import create_engine, text
@@ -237,12 +239,9 @@ def batch_process_from_blob(**context):
     """Process multiple files from Azure Blob Storage."""
     logging.info("[batch_process_from_blob] Starting batch process.")
 
-    azure_conn = BaseHook.get_connection(AZURE_BLOB_CONN_ID)
-    azure_extra = json.loads(azure_conn.extra)
+    storage_account = Variable.get("AZURE_STORAGE_ACCOUNT")
+    container_name = Variable.get("AZURE_RAW_CONTAINER")
     schema_name = SCHEMA_NAME_VAR
-
-    connection_string = azure_extra["connection_string"]
-    container_name = azure_extra["container"]
 
     dag_run_conf = context.get("dag_run").conf or {}
     selected_files = dag_run_conf.get("selected_files")
@@ -254,17 +253,29 @@ def batch_process_from_blob(**context):
         except Exception:
             selected_files = []
 
-    blob_service = BlobServiceClient.from_connection_string(connection_string)
+    credential = DefaultAzureCredential()
+    account_url = f"https://{storage_account}.blob.core.windows.net"
+
+    blob_service = BlobServiceClient(
+        account_url=account_url,
+        credential=credential
+    )
     container_client = blob_service.get_container_client(container_name)
 
     all_blobs = [
         b for b in container_client.list_blobs()
         if b.name.lower().endswith((".csv", ".xlsx"))
     ]
-    blob_list = (
-        [b for b in all_blobs if b.name in selected_files]
-        if selected_files else all_blobs
-    )
+    if selected_files:
+        blob_list = [
+            b for b in all_blobs
+            if any(
+                b.name == f or b.name.startswith(f.rstrip("/") + "/")
+                for f in selected_files
+            )
+        ]
+    else:
+        blob_list = all_blobs
 
     if not blob_list:
         raise Exception(f"No matching files found for: {selected_files}")
