@@ -22,8 +22,10 @@ from airflow.operators.python import PythonOperator
 from datetime import timedelta
 from pathlib import Path
 from utils.schema_table_config import get_schema, get_log_tables
-from crypto.crypto_utils import get_fernet , encrypt_value , decrypt_value
+from crypto.crypto_utils import get_fernet , encrypt_value 
 from utils.config_loader import load_sensitive_columns
+from crypto.crypto_utils import get_postgres_password
+from urllib.parse import quote_plus
 
 
 # ---------------------------------------------------------------------
@@ -284,8 +286,22 @@ def batch_process_from_blob(**context):
     for i, blob in enumerate(blob_list, start=1):
         file_name = blob.name
         try:
-            pg_hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
-            pg_url = pg_hook.get_uri()
+            # ---- Postgres config (NON-SECRET) ----
+            pg_host = Variable.get("PG_HOST")
+            pg_port = Variable.get("PG_PORT")
+            pg_db   = Variable.get("PG_DB")
+            pg_user = Variable.get("PG_USER")
+
+            # ---- Postgres password from Key Vault ----
+            pg_password = get_postgres_password()
+
+            safe_password = quote_plus(pg_password)
+
+            # ---- Build DB URL securely ----
+            pg_url = (
+                f"postgresql+psycopg2://{pg_user}:{safe_password}"
+                f"@{pg_host}:{pg_port}/{pg_db}"
+            )
 
             engine = create_engine(
                 pg_url,
